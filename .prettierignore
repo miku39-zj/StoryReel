@@ -1,0 +1,13 @@
+node_modules/
+.next/
+.storyreel/
+.superdesign/
+.claude/
+out/
+coverage/
+tests/artifacts/
+public/
+next-env.d.ts
+package-lock.json
+*.tsbuildinfo
+.env*

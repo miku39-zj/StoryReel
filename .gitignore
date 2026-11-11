@@ -1,0 +1,11 @@
+node_modules/
+.next/
+.storyreel/
+.env*.local
+.env
+.env.*
+!.env.local.example
+.claude/settings.local.json
+.DS_Store
+tsconfig.tsbuildinfo
+tests/artifacts/
