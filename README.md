@@ -13,8 +13,8 @@ StoryReel 将故事创意变成可编辑的剧本、视频片段和播放路线�
 需要 **Node.js 22.13 或以上**和 npm。导出 MP4 还需要将 `ffmpeg` 和 `ffprobe` 加入 `PATH`。
 
 ```bash
-git clone https://github.com/miku39-zj/newbee.git
-cd newbee
+git clone https://github.com/miku39-zj/StoryReel.git
+cd StoryReel
 npm ci
 cp .env.local.example .env.local
 npm run dev
