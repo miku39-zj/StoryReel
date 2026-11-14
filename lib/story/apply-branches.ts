@@ -2,6 +2,7 @@ import { branchDesignSchema } from "./creation-schema";
 import { resolveBranchRoutes } from "./branch-routes";
 import type { StoryProject, StoryFlowNode, StoryFlowEdge } from "./types";
 import type { StoryOutline } from "@/stores/creation-store";
+import { routeWorkspaceGraph } from "@/lib/canvas/route-workspace";
 import { isContextEdge } from "./connections";
 
 /** Rebuild generated routes atomically, preserving scene assets and context inputs. */
@@ -18,11 +19,23 @@ export function applyBranchDesign(
   const generatedIds = new Set(scenes.flatMap((s) => [`choice_${s.id}`, `ending_${s.id}`]));
   const nodes = project.nodes.filter((n) => !generatedIds.has(n.id));
   const managedVideos = new Set(scenes.map((s) => `video_${s.id}`));
+  const sceneTails = new Map<string, string>();
+  const route = routeWorkspaceGraph(project.nodes, project.edges);
+  for (const scene of scenes) {
+    const id = `video_${scene.id}`;
+    const tail = route.tails.get(id);
+    if (tail) {
+      sceneTails.set(id, tail);
+      managedVideos.add(tail);
+    }
+  }
   const edges = project.edges.filter(
     (e) =>
       !generatedIds.has(e.source) &&
       !generatedIds.has(e.target) &&
-      (isContextEdge(e, project.nodes) || !managedVideos.has(e.source)),
+      (isContextEdge(e, project.nodes) ||
+        e.id.startsWith("shot_input:") ||
+        !managedVideos.has(e.source)),
   );
   const connect = (source: string, target: string, index = 0, label?: string) => {
     edges.push({
@@ -63,12 +76,12 @@ export function applyBranchDesign(
           ? { nodeType: "choice", question: dp.question }
           : { nodeType: "ending", title: ending!.title, description: ending!.description },
       } as StoryFlowNode);
-      connect(videoId, id);
+      connect(sceneTails.get(videoId) ?? videoId, id);
       dp?.choices.forEach((choice, j) =>
         connect(id, `video_${choice.targetSceneId}`, j, choice.label),
       );
     } else if (routes.get(scene.id)?.[0])
-      connect(videoId, `video_${routes.get(scene.id)![0].leadsTo}`);
+      connect(sceneTails.get(videoId) ?? videoId, `video_${routes.get(scene.id)![0].leadsTo}`);
     else throw new Error("最后一个场景必须配置为结局或决策点");
   });
   // Reject any bad references before the caller mutates either store.

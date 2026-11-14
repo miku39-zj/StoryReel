@@ -1,6 +1,7 @@
 "use client";
 
-import { shotWorkspaceGraph } from "@/lib/canvas/shot-workspace";
+import { routeWorkspaceGraph } from "@/lib/canvas/route-workspace";
+import { shotWorkspaceGraph, videoWorkspaceId } from "@/lib/canvas/shot-workspace";
 import { CanvasBackground } from "./CanvasBackground";
 import { CanvasEntryViewport } from "./CanvasEntryViewport";
 import { GraphDebugger } from "./GraphDebugger";
@@ -18,6 +19,7 @@ import {
   getBezierPath,
   Position,
 } from "@xyflow/react";
+import { useCreationStore } from "@/stores/creation-store";
 import { useCanvasStore } from "@/stores/canvas-store";
 import { VideoNode } from "./nodes/VideoNode";
 import { ChoiceNode } from "./nodes/ChoiceNode";
@@ -69,13 +71,22 @@ export function StoryCanvas({ children }: { children?: ReactNode }) {
   const allEdges = useCanvasStore((s) => s.edges);
   const shotId = useCanvasStore((s) => s.activeShotId);
   useEffect(() => setDraft(null), [shotId]);
+  const hasStory = useCreationStore((s) => !!s.storyOutline);
   const workspaces = useCanvasStore((s) => s.shotWorkspaces);
-  const { nodes, edges } = useMemo(() => {
+  const graph = useMemo<{
+    nodes: StoryFlowNode[];
+    edges: StoryFlowEdge[];
+    tails?: Map<string, string>;
+  }>(() => {
     const project = useCanvasStore.getState().toProject();
     return project && shotId
       ? shotWorkspaceGraph({ ...project, shotWorkspaces: workspaces }, shotId)
-      : { nodes: allNodes, edges: allEdges };
-  }, [allNodes, allEdges, shotId, workspaces]);
+      : hasStory
+        ? routeWorkspaceGraph(allNodes, allEdges)
+        : { nodes: allNodes, edges: allEdges };
+  }, [allNodes, allEdges, shotId, workspaces, hasStory]);
+  const { nodes, edges } = graph;
+  const tails = graph.tails;
   const updateNodes = useCanvasStore((s) => s.onNodesChange);
   const updateEdges = useCanvasStore((s) => s.onEdgesChange);
   const updateShotNodes = useCanvasStore((s) => s.updateShotNodes);
@@ -89,16 +100,24 @@ export function StoryCanvas({ children }: { children?: ReactNode }) {
   // 把 React Flow 的 onNodesChange 映射到 store
   const handleNodesChange = useCallback(
     (changes: NodeChange<StoryFlowNode>[]) => {
-      onNodesChange(applyNodeChanges(changes, nodes));
+      if (shotId) onNodesChange(applyNodeChanges(changes, nodes));
+      else
+        updateNodes(
+          applyNodeChanges(
+            changes.filter((change) => change.type !== "remove" || !tails?.has(change.id)),
+            allNodes,
+          ),
+        );
     },
-    [nodes, onNodesChange],
+    [nodes, onNodesChange, shotId, tails, allNodes, updateNodes],
   );
 
   const handleEdgesChange = useCallback(
     (changes: EdgeChange<StoryFlowEdge>[]) => {
-      onEdgesChange(applyEdgeChanges(changes, edges));
+      if (shotId) onEdgesChange(applyEdgeChanges(changes, edges));
+      else updateEdges(applyEdgeChanges(changes, allEdges));
     },
-    [edges, onEdgesChange],
+    [edges, onEdgesChange, shotId, allEdges, updateEdges],
   );
 
   // 新建连接
@@ -106,13 +125,13 @@ export function StoryCanvas({ children }: { children?: ReactNode }) {
     (connection: Connection) => {
       if (connection.source && connection.target) {
         addEdgeAction(
-          connection.source,
+          tails?.get(connection.source) ?? connection.source,
           connection.target,
           connectionPortData(connection.targetHandle),
         );
       }
     },
-    [addEdgeAction],
+    [addEdgeAction, tails],
   );
 
   // 同步选中状态
@@ -122,9 +141,16 @@ export function StoryCanvas({ children }: { children?: ReactNode }) {
         selectNode(null);
         return;
       }
+      if (!shotId && node.type === "video") {
+        const target = event.target as Element;
+        if (!target.closest("button,video,input,.react-flow__handle")) {
+          useCanvasStore.getState().setActiveShot(videoWorkspaceId(node.id));
+        }
+        return;
+      }
       selectNode(node.id);
     },
-    [selectNode],
+    [selectNode, shotId],
   );
 
   const handleEdgeClick = useCallback(
@@ -188,7 +214,7 @@ export function StoryCanvas({ children }: { children?: ReactNode }) {
           return;
         const direction = state.fromHandle.type === "target" ? "input" : "output";
         const type = state.fromNode.type as StoryNodeType;
-        if (!connectionNodeOptions(type, direction).length) return;
+        if ((!shotId && hasStory) || !connectionNodeOptions(type, direction).length) return;
         const handle = document.querySelector(
           `.react-flow__handle[data-nodeid="${CSS.escape(state.fromNode.id)}"][data-handleid="${CSS.escape(state.fromHandle.id || "")}"]`,
         );
@@ -209,10 +235,10 @@ export function StoryCanvas({ children }: { children?: ReactNode }) {
       multiSelectionKeyCode={["Meta", "Control", "Shift"]}
       isValidConnection={(connection) =>
         !proposeConnection(
-          connection.source!,
+          tails?.get(connection.source!) ?? connection.source!,
           connection.target!,
-          nodes,
-          edges,
+          allNodes,
+          allEdges,
           connectionPortData(connection.targetHandle),
         ).error
       }

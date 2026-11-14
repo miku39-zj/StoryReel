@@ -13,6 +13,7 @@ import { BranchAgentPanel } from "./BranchAgentPanel";
 import { StoryboardPanel } from "./StoryboardPanel";
 import { VisualAudioPanel } from "./VisualAudioPanel";
 import { VideoGenPanel } from "./VideoGenPanel";
+import { ShotProductionPanel } from "./ShotProductionPanel";
 import { ValidationPanel } from "./ValidationPanel";
 
 const ACCENT = "#ff715b";
@@ -36,14 +37,22 @@ const STEP_LABELS: Record<PipelineStep, { title: string; desc: string }> = {
   validate: { title: "校验与发布", desc: "预览效果并发布作品" },
 };
 
-export function AICreationPipeline({ initialStep }: { initialStep?: PipelineStep | null }) {
+export function AICreationPipeline({
+  initialStep,
+  onOpenShot,
+}: {
+  initialStep?: PipelineStep | null;
+  onOpenShot?: (shotId: string) => void;
+}) {
   const brief = useCreationStore((s) => s.brief);
   const appliedSource = useCreationStore((s) => s.appliedStorySource);
   const userPrompt = useCreationStore((s) => s.userPrompt);
   const changed =
     !!appliedSource && !sameStorySource(appliedSource, storySource(userPrompt, brief));
-  const steps = PIPELINE_STEPS.filter(
-    (step) => step.id !== "branch" || !isLinearWork(appliedSource?.brief ?? brief),
+  const work = appliedSource?.brief ?? brief;
+  const linear = isLinearWork(work);
+  const steps = ["story", "visual", "storyboard", "validate"].map((id) =>
+    PIPELINE_STEPS.find((step) => step.id === id)!,
   );
   const activeStep = useCreationStore((s) => s.activeStep);
   const stepStatuses = useCreationStore((s) => s.stepStatuses);
@@ -54,7 +63,9 @@ export function AICreationPipeline({ initialStep }: { initialStep?: PipelineStep
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialStep]);
 
-  const ActivePanel = stepComponents[activeStep];
+  const step = linear && activeStep === "branch" ? "story" : activeStep;
+  const section = step === "branch" ? "story" : activeStep === "video" ? "storyboard" : activeStep;
+  const ActivePanel = stepComponents[step];
   const doneCount = steps.filter((s) => stepStatuses[s.id] === "done").length;
 
   return (
@@ -72,13 +83,19 @@ export function AICreationPipeline({ initialStep }: { initialStep?: PipelineStep
           aria-label="创作流程"
           className="flex md:flex-col gap-1 px-2 py-2 md:py-0 overflow-x-auto"
         >
-          {steps.map((step) => {
+          {steps.map((step, index) => {
             const status = stepStatuses[step.id];
-            const isActive = activeStep === step.id;
+            const isActive = section === step.id;
             const isDone = status === "done";
             const isRunning = status === "running";
             const isError = status === "error";
             const label = STEP_LABELS[step.id];
+            const title = {
+              story: work.workType === "single-episode" ? "剧本" : "大纲与分集剧本",
+              visual: "角色与场景",
+              storyboard: "分镜与生成",
+              validate: linear ? "成片与发布" : "路线预览与发布",
+            }[step.id as "story" | "visual" | "storyboard" | "validate"];
 
             return (
               <div key={step.id} className="relative shrink-0 md:shrink">
@@ -118,7 +135,7 @@ export function AICreationPipeline({ initialStep }: { initialStep?: PipelineStep
                     ) : isDone && !isActive ? (
                       <Check size={14} />
                     ) : (
-                      step.no
+                      String(index + 1).padStart(2, "0")
                     )}
                   </div>
 
@@ -127,7 +144,7 @@ export function AICreationPipeline({ initialStep }: { initialStep?: PipelineStep
                       className="text-[13px] font-medium leading-tight"
                       style={{ color: isActive ? "#f2f2f4" : "rgba(255,255,255,0.75)" }}
                     >
-                      {label.title}
+                      {title}
                     </p>
                     <p
                       className="hidden"
@@ -200,7 +217,40 @@ export function AICreationPipeline({ initialStep }: { initialStep?: PipelineStep
             </Alert>
           </div>
         ) : (
-          <ActivePanel />
+          <div className="flex h-full min-h-0 flex-col">
+            {((section === "story" && !linear) || section === "storyboard") && (
+              <div className="flex shrink-0 gap-2 border-b border-white/10 px-4 py-2">
+                {(section === "story"
+                  ? [
+                      { id: "story", label: "分集剧本" },
+                      { id: "branch", label: "分支设计" },
+                    ]
+                  : [
+                      { id: "storyboard", label: "镜头脚本" },
+                      { id: "video", label: "逐镜生成" },
+                    ]
+                ).map(({ id, label }) => (
+                  <Button
+                    key={id}
+                    size="sm"
+                    variant={activeStep === id ? "secondary" : "ghost"}
+                    onClick={() => setActiveStep(id as PipelineStep)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            )}
+            <div className="min-h-0 flex-1">
+              {activeStep === "video" ? (
+                <ShotProductionPanel mode="video" onOpenShot={onOpenShot} />
+              ) : activeStep === "visual" ? (
+                <VisualAudioPanel assetsOnly />
+              ) : (
+                <ActivePanel />
+              )}
+            </div>
+          </div>
         )}
       </div>
     </div>

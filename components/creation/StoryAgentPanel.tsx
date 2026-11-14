@@ -8,12 +8,7 @@ import { initializeCharacterAssets } from "@/lib/story/character-design";
 import { CreationReferenceList, CreationReferencePicker } from "./CreationReferences";
 import { attachCreationReferences } from "@/lib/story/creation-references";
 import { useCreationRequest } from "./useCreationRequest";
-import {
-  isLinearWork,
-  storyBrief,
-  storySource,
-  sameStorySource,
-} from "@/lib/story/creation-brief";
+import { isLinearWork, storyBrief, storySource, sameStorySource } from "@/lib/story/creation-brief";
 import { useState } from "react";
 import { useCreationStore, creationSnapshot } from "@/stores/creation-store";
 import { useCanvasStore } from "@/stores/canvas-store";
@@ -190,7 +185,7 @@ export function StoryAgentPanel() {
         appliedStorySource: pendingSource,
         pendingStorySource: null,
         userPrompt: pendingSource.prompt,
-        activeStep: isLinearWork(appliedBrief) ? "storyboard" : "branch",
+        activeStep: isLinearWork(appliedBrief) ? "visual" : "branch",
         storyOutline,
         pendingStoryOutline: null,
         pendingStoryBrief: null,
@@ -208,7 +203,7 @@ export function StoryAgentPanel() {
       } as ReturnType<typeof creationSnapshot>;
       loadProject(initializeCharacterAssets(project));
       setProjectName(storyOutline.title);
-      setActiveStep(isLinearWork(appliedBrief) ? "storyboard" : "branch");
+      setActiveStep(isLinearWork(appliedBrief) ? "visual" : "branch");
     } catch (error) {
       setApplyError((error as Error).message);
     } finally {

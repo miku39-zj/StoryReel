@@ -1,3 +1,4 @@
+import { continuityFields, sceneContinuity } from "@/lib/story/continuity";
 import type { StoryProject } from "@/lib/story/types";
 import { connectedInputs } from "@/lib/story/connections";
 import { fingerprint } from "@/lib/canvas/workflow";
@@ -33,7 +34,25 @@ export function storyboardReferenceIds(project: StoryProject, shot: StoryboardSh
 
 /** Resolve explicit scene/frame bindings for every consumer; never infer a cast from all project roles. */
 export function productionShots(project: StoryProject) {
-  return normalizeShots(project.creation?.storyboardShots ?? []).map((shot) => {
+  const continuity = new Map<string, string>();
+  return normalizeShots(project.creation?.storyboardShots ?? []).map((original) => {
+    const sceneId = original.sceneId;
+    if (!continuity.has(sceneId)) {
+      const { entry } = sceneContinuity(project, sceneId);
+      continuity.set(
+        sceneId,
+        Object.entries(continuityFields)
+          .flatMap(([key, label]) => {
+            const value = entry[key as keyof typeof entry];
+            return value ? [`${label}：${value}`] : [];
+          })
+          .join("；"),
+      );
+    }
+    const state = continuity.get(sceneId);
+    const shot = state
+      ? { ...original, imagePrompt: `${original.imagePrompt}\n入场状态：${state}` }
+      : original;
     const legacyFrames = connectedInputs(
       `video_${shot.sceneId}`,
       project.nodes,
@@ -66,8 +85,8 @@ export function productionShots(project: StoryProject) {
         }),
       };
     }
-    const sceneId = `video_${shot.sceneId}`;
-    const frames = connectedInputs(sceneId, project.nodes, project.edges).filter((input) =>
+    const sceneVideoId = `video_${shot.sceneId}`;
+    const frames = connectedInputs(sceneVideoId, project.nodes, project.edges).filter((input) =>
       ["first-frame", "last-frame"].includes(input.role),
     );
     const references = new Map(

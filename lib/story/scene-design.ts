@@ -15,7 +15,7 @@ export function initializeSceneAssets(project: StoryProject): StoryProject {
         assetKind: "scene",
         title: scene.title,
         assetDescription: "",
-        prompt: `Environment reference for ${scene.title}. Establish architecture, landscape, spatial layout, lighting and color palette. Empty environment, no people, no character action, no text. Visual style: ${project.creation?.storyOutline?.visualStyle ?? "cinematic"}.`,
+        prompt: `Environment reference for ${scene.title}. Use this scene description as context: ${scene.scenePrompt || scene.description}. Show one wide establishing view of the environment. Make entrances, landmarks, spatial layout, lighting direction and palette clear enough to match from other angles. Empty environment, no people, no character action, no text. Visual style: ${project.creation?.storyOutline?.visualStyle ?? "cinematic"}.`,
         generationStatus: "idle",
       },
     });

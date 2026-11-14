@@ -28,6 +28,16 @@ function assertAcyclic(routes: Map<string, string[]>) {
 export function validateStory(value: unknown, brief?: CreationBrief) {
   const story = storyOutlineSchema.parse(value);
   assertCreationContent(story);
+  if (brief?.workType === "single-episode") {
+    story.scenes.forEach((scene) => {
+      scene.episode = 1;
+    });
+  } else if (brief?.workType === "multi-episode" || brief?.workType === "interactive") {
+    const episodes = new Set(story.scenes.map((scene) => scene.episode));
+    if (episodes.has(undefined) || !episodes.has(1) || episodes.size < 2)
+      throw new Error("请从第 1 集起规划至少两集，并为每个场景标记集号");
+  }
+
   if (story.scenes.some((scene) => scene.choices === undefined))
     throw new Error("生成故事的每个场景必须包含 choices");
   const ids = new Set(story.scenes.map((scene) => scene.id));

@@ -1,4 +1,6 @@
 "use client";
+import { useCanvasStore } from "@/stores/canvas-store";
+import { useCreationStore } from "@/stores/creation-store";
 import { memo } from "react";
 import { type NodeProps } from "@xyflow/react";
 import { Film, Clock } from "lucide-react";
@@ -9,6 +11,13 @@ import { NodeCard } from "./NodeCard";
 
 export const VideoNode = memo(function VideoNode({ id, data, selected }: NodeProps) {
   const d = data as VideoNodeData;
+  const shotId = useCanvasStore((state) => state.activeShotId);
+  const isStoryRoute = useCreationStore((state) => !!state.storyOutline) && !shotId;
+  const scene = useCreationStore((state) =>
+    state.storyOutline?.scenes.find(
+      (item) => item.id === (d.shotSceneId ?? id.replace(/^video_/, "")),
+    ),
+  );
   return (
     <NodeCard
       nodeId={id}
@@ -16,14 +25,16 @@ export const VideoNode = memo(function VideoNode({ id, data, selected }: NodePro
       selected={selected}
       icon={<Film size={14} />}
       label="视频"
-      title={d.title || "未命名片段"}
+      title={
+        !shotId && scene ? `第 ${scene.episode ?? 1} 集 · ${scene.title}` : d.title || "未命名片段"
+      }
       description={d.description}
     >
       <div className="relative flex h-24 items-center justify-center bg-white/[0.02]">
-        {d.videoUrl ? (
+        {d.videoUrl && !isStoryRoute ? (
           <video
             controls
-            preload="metadata"
+            preload={shotId ? "metadata" : "none"}
             src={d.videoUrl}
             poster={d.thumbnailUrl}
             aria-label={`${d.title}视频`}
@@ -35,7 +46,7 @@ export const VideoNode = memo(function VideoNode({ id, data, selected }: NodePro
         ) : (
           <Film size={24} className="text-white/15" />
         )}
-        {d.generationStatus && d.generationStatus !== "idle" && (
+        {!isStoryRoute && d.generationStatus && d.generationStatus !== "idle" && (
           <div className="absolute right-2 top-2">
             <AssetStatusBadge status={d.generationStatus} />
           </div>

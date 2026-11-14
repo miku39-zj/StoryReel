@@ -12,7 +12,7 @@ import { readFile } from "node:fs/promises";
 import * as path from "node:path";
 import { readGeneratedMedia } from "./generated-media";
 import { buildConfiguredVideoRequest as buildSeedanceRequest } from "./video-request";
-import { shotPrompt, shotVoice } from "@/lib/production/shots";
+import { shotPrompt, shotVideoPrompt, shotVoice } from "@/lib/production/shots";
 import type { GenerationJob, ProviderTask } from "@/lib/production/types";
 
 export type GenerationResult =
@@ -108,7 +108,7 @@ export const generationProvider: GenerationProvider = {
     if (job.kind === "video" && isVideoGateway(config))
       return submitGatewayVideo(
         {
-          prompt: shotPrompt(job.shot),
+          prompt: shotVideoPrompt(job.shot, Boolean(lastFrameUrl)),
           firstFrameUrl,
           lastFrameUrl,
           mode: lastFrameUrl ? "first-last-frame" : "image-to-video",
@@ -124,7 +124,7 @@ export const generationProvider: GenerationProvider = {
             input: { prompt: shotPrompt(job.shot), image_size: "landscape_16_9", num_images: 1 },
           }
         : buildSeedanceRequest({
-            prompt: shotPrompt(job.shot),
+            prompt: shotVideoPrompt(job.shot, Boolean(lastFrameUrl)),
             firstFrameUrl,
             lastFrameUrl,
             // mode is auto-derived by buildSeedanceRequest: first-last-frame when both present

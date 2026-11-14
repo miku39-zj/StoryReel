@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+const continuitySchema = z
+  .object({
+    costume: z.string().max(500),
+    props: z.string().max(500),
+    time: z.string().max(500),
+    knowledge: z.string().max(500),
+  })
+  .partial();
+
 export const storyOutlineSchema = z
   .object({
     title: z.string().min(1),
@@ -15,6 +24,9 @@ export const storyOutlineSchema = z
           description: z.string().default(""),
           scenePrompt: z.string().default(""),
           order: z.number().default(0),
+          entryState: continuitySchema.optional(),
+          exitState: continuitySchema.optional(),
+          episode: z.number().int().min(1).max(5000).optional(),
           choices: z.array(z.object({ label: z.string(), leadsTo: z.string() })).optional(),
         }),
       )

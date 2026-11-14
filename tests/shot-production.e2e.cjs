@@ -114,6 +114,7 @@ function startWorker() {
   const shots = [
     {
       shotId: "shot-a",
+      referenceNodeIds: [],
       sceneId: "scene",
       shotIndex: 0,
       frameType: "中景",
@@ -126,6 +127,7 @@ function startWorker() {
     },
     {
       shotId: "shot-b",
+      referenceNodeIds: [],
       sceneId: "scene",
       shotIndex: 1,
       frameType: "特写",
@@ -206,13 +208,11 @@ function startWorker() {
   const page = await creator.newPage();
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(base + "/editor/shot-e2e#creation:storyboard");
+  await page.getByRole("button", { name: /编辑镜头 1 ·/ }).click();
   await page
     .getByRole("textbox", { name: "shot-a 画面提示词" })
     .fill("edited cinematic letter prompt");
-  await page
-    .getByRole("navigation", { name: "创作流程" })
-    .getByRole("button", { name: /视频生成/ })
-    .click();
+  await page.getByRole("button", { name: "逐镜生成", exact: true }).click();
   await page.getByRole("button", { name: "生成缺失镜头素材", exact: true }).click();
   let queued = await until(async () => {
     const s = await state();
@@ -246,13 +246,12 @@ function startWorker() {
   console.log(
     "PASS: worker restart resumes polling, creates image/audio/video versions and respects silent shots",
   );
-  await page.getByRole("button", { name: /角色与画面/ }).click();
   const firstImage = finished.assets.find((a) => a.shotId === "shot-a" && a.kind === "image");
   await until(
     async () =>
       page
         .locator('[data-shot-id="shot-a"]')
-        .getByRole("img")
+        .getByRole("img", { name: "镜头 1 图片", exact: true })
         .evaluate(
           (image) =>
             image.complete && image.naturalWidth > 0 && !image.currentSrc.includes("/_next/image"),
@@ -296,10 +295,7 @@ function startWorker() {
   console.log(
     "PASS: single-shot regeneration preserves other shots and historical version selection survives reload",
   );
-  await page
-    .getByRole("navigation", { name: "创作流程" })
-    .getByRole("button", { name: /视频生成/ })
-    .click();
+  await page.getByRole("button", { name: "逐镜生成", exact: true }).click();
   await page.getByRole("button", { name: "将选中版本应用到剧情", exact: true }).click();
   await page.getByText("已应用到剧情", { exact: true }).waitFor();
   const applied = await api("/api/projects/shot-e2e");
@@ -381,6 +377,26 @@ function startWorker() {
   await watch
     .getByRole("heading", { name: "镜头播放完成", exact: true })
     .waitFor({ timeout: 20000 });
+  await page.goto(base + "/editor/shot-e2e#creation:video");
+  await page
+    .locator('[data-shot-id="shot-a"]')
+    .getByRole("button", { name: "打开镜头画布" })
+    .click();
+  await page.getByRole("combobox", { name: "当前分镜" }).waitFor();
+  await page.locator('.react-flow__node[data-id="shot_frame:shot-a"]').waitFor();
+  assert.equal(await page.locator('.react-flow__node[data-id="shot_frame:shot-b"]').count(), 0);
+  await page.getByRole("button", { name: "下一分镜" }).click();
+  await page.locator('.react-flow__node[data-id="shot_frame:shot-b"]').waitFor();
+  await page.getByRole("button", { name: "剧情路线", exact: true }).click();
+  const route = page.locator('.react-flow__node[data-id="video_scene"]');
+  await route.waitFor();
+  assert.equal(await page.locator(".react-flow__node-image").count(), 0);
+  await route.getByText("第 1 集 · 发现秘密", { exact: true }).click();
+  await page.locator('.react-flow__node[data-id="shot_frame:shot-a"]').waitFor();
+  await page.getByRole("combobox", { name: "当前视频画布" }).waitFor();
+  console.log(
+    "PASS: creation opens a single shot, and the compact route opens the selected video canvas",
+  );
   assert.deepEqual(errors, []);
   console.log("PASS: server restart preserves generated media and the public playback snapshot");
   if (process.env.STORYREEL_E2E_BUILD === "1") {
@@ -399,13 +415,24 @@ function startWorker() {
   console.log("All shot production browser checks passed");
 })()
   .catch(async (error) => {
-    const failedPage=browser?.contexts()[0]?.pages()[0];
-    if(failedPage){
-      console.error("PAGE STATE:",(await failedPage.locator("body").innerText().catch(()=>"unavailable")).slice(0,4000));
-      await fs.mkdir(path.join(root,"tests/artifacts"),{recursive:true});
-      await failedPage.screenshot({path:path.join(root,"tests/artifacts/shot-production-failure.png")}).catch(()=>{});
+    const failedPage = browser?.contexts()[0]?.pages()[0];
+    if (failedPage) {
+      console.error(
+        "PAGE STATE:",
+        (
+          await failedPage
+            .locator("body")
+            .innerText()
+            .catch(() => "unavailable")
+        ).slice(0, 4000),
+      );
+      await fs.mkdir(path.join(root, "tests/artifacts"), { recursive: true });
+      await failedPage
+        .screenshot({ path: path.join(root, "tests/artifacts/shot-production-failure.png") })
+        .catch(() => {});
     }
     console.error(error);
+    console.error("Browser errors:", errors);
     console.error(logs.slice(-4500));
     process.exitCode = 1;
   })

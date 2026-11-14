@@ -176,7 +176,7 @@ export function BranchAgentPanel() {
             </section>
           </div>
           <div className="flex justify-end border-t border-white/[0.08] pt-5">
-            <Button variant="primary" size="lg" onClick={() => setActiveStep("storyboard")}>
+            <Button variant="primary" size="lg" onClick={() => setActiveStep("visual")}>
               下一步：分镜设计 →
             </Button>
           </div>

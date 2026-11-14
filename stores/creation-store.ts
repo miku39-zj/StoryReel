@@ -87,6 +87,9 @@ export interface StoryOutline {
     description: string;
     scenePrompt: string;
     order: number;
+    episode?: number;
+    entryState?: import("@/lib/story/continuity").ContinuityState;
+    exitState?: import("@/lib/story/continuity").ContinuityState;
     choices?: Array<{ label: string; leadsTo: string }>;
   }>;
 }

@@ -50,6 +50,19 @@ export function briefInstructions(brief: CreationBrief) {
     ...brief,
     decisionPoints: isLinearWork(brief) ? undefined : brief.decisionPoints,
     genre: brief.genre === "自动" ? "根据创意推断题材，不将创作类型当作题材" : brief.genre,
+    episodes:
+      brief.workType === "single-episode"
+        ? "所有场景属于第 1 集。围绕一个核心冲突安排开场、升级、高潮与收束，在本集解决主线。"
+        : brief.workType
+          ? [
+              "先确定全剧主线和最终揭晓，再从第 1 集起规划至少两集，集号连续。每集有一个具体目标、关键转折和结尾。每个场景标记 episode。",
+              "用全剧 description 概括主线，在每集首场 description 写清本集目标。非末集结尾留下下一集能兑现的动作或悬念。",
+              "在跨集边两端填写 exitState 和 entryState，记录服装、道具、时间、角色已知信息。在场景 description 写明地点和同动作接拍、切景或跳时。",
+              isLinearWork(brief)
+                ? "按集和场景顺序推进，非结局场景只有一个自动后继。"
+                : "同一集可有互斥片段。选项指向具体场景 ID，汇合前处理道具和信息差异。",
+            ].join(" ")
+          : undefined,
     narrative: isLinearWork(brief)
       ? "线性故事，只有自动后继与一个结局，不生成观众选择"
       : "确定性互动故事，观众选择改变路线",

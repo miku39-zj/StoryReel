@@ -247,3 +247,147 @@ test("explicit video version updates selected main and clears previous segments;
     undefined,
   );
 });
+
+test("route workspace folds generated shot chains without changing branch targets", () => {
+  const { routeWorkspaceGraph } = load("lib/canvas/route-workspace.ts");
+  const project = fixture();
+  const route = routeWorkspaceGraph(project.nodes, project.edges);
+  assert.equal(route.tails.get("video_a"), "shot_video:s1");
+  assert.ok(route.nodes.every((node) => !["text", "image"].includes(node.type)));
+  assert.ok(route.edges.some((edge) => edge.source === "video_a"));
+  assert.ok(project.edges.some((edge) => edge.source === "shot_video:s1"));
+});
+
+test("an outpoint frame becomes stale when the preceding selected video changes", () => {
+  const { isStale } = load("lib/canvas/workflow.ts");
+  const project = fixture();
+  const source = project.nodes.find((node) => node.id === "video_a");
+  const target = project.nodes.find((node) => node.id === "shot_video:s1");
+  source.data.videoUrl = "/api/media/old";
+  const frame = {
+    id: "captured",
+    type: "image",
+    data: {
+      nodeType: "image",
+      imageUrl: "/api/media/frame",
+      outpointSourceId: source.id,
+      outpointVideoUrl: source.data.videoUrl,
+    },
+  };
+  project.nodes.push(frame);
+  project.edges.push({
+    id: "captured-input",
+    source: frame.id,
+    target: target.id,
+    data: { kind: "context", inputRole: "first-frame" },
+  });
+  assert.equal(isStale(project, frame), false);
+  source.data.videoUrl = "/api/media/new";
+  assert.equal(isStale(project, frame), true);
+  assert.equal(isStale(project, target), true);
+});
+
+test("splitting at a key image preserves playback order and pins both boundary inputs", () => {
+  const { splitShotAtImage } = load("lib/production/split-shot.ts");
+  const project = fixture();
+  const main = mainVideoNode(project, "s0");
+  const first = project.nodes.find((node) => node.id === "shot_frame:s0");
+  first.data.imageUrl = "/api/media/first";
+  const input = project.edges.find((edge) => edge.source === first.id && edge.target === main.id);
+  input.data.inputRole = "reference-image";
+  project.nodes.push({
+    id: "middle",
+    type: "image",
+    position: { x: 0, y: 0 },
+    data: {
+      nodeType: "image",
+      imageUrl: "/api/media/middle",
+      canvasShotId: "s0",
+      middleKeyImage: true,
+    },
+  });
+  project.edges.push({
+    id: "mid-input",
+    source: "middle",
+    target: main.id,
+    data: { kind: "context", inputRole: "reference-image" },
+  });
+  const split = splitShotAtImage(project, "s0", "middle", "split");
+  assert.deepEqual(
+    split.creation.storyboardShots.map(({ shotId, shotIndex }) => [shotId, shotIndex]),
+    [
+      ["s0", 0],
+      ["split", 1],
+      ["s1", 2],
+    ],
+  );
+  assert.ok(
+    split.edges.some((edge) => edge.source === "middle" && edge.data.inputRole === "last-frame"),
+  );
+  assert.ok(
+    split.edges.some(
+      (edge) => edge.source === "split_frame:split" && edge.data.inputRole === "first-frame",
+    ),
+  );
+  assert.ok(
+    split.edges.some(
+      (edge) => edge.source === "shot_video:split" && edge.target === "shot_video:s1",
+    ),
+  );
+});
+
+test("a branch merge inherits agreed state and flags conflicting props", () => {
+  const { sceneContinuity } = load("lib/story/continuity.ts");
+  const project = {
+    nodes: ["video_a", "video_b", "video_c"].map((id) => ({
+      id,
+      type: "video",
+      data: { nodeType: "video" },
+    })),
+    edges: ["a", "b"].map((id) => ({ source: `video_${id}`, target: "video_c" })),
+    creation: {
+      storyOutline: {
+        scenes: [
+          { id: "a", title: "留岸", exitState: { time: "夜", props: "船票" } },
+          { id: "b", title: "上船", exitState: { time: "夜", props: "无" } },
+          { id: "c", title: "船舱" },
+        ],
+      },
+    },
+  };
+  const result = sceneContinuity(project, "c");
+  assert.equal(result.entry.time, "夜");
+  assert.equal(result.entry.props, undefined);
+  assert.match(result.warnings[0], /道具.*过渡镜头/);
+});
+
+test("video canvases open without storyboard shots and keep branch edges in the route", () => {
+  const { videoWorkspaceId } = load("lib/canvas/shot-workspace.ts");
+  const project = fixture();
+  const first = {
+    id: "opening",
+    type: "video",
+    position: { x: 0, y: 0 },
+    data: { nodeType: "video" },
+  };
+  const second = { ...first, id: "ending" };
+  const frame = { ...first, id: "frame", type: "image", data: { nodeType: "image" } };
+  const flow = { id: "flow", source: first.id, target: second.id };
+  const input = { id: "frame-input", source: frame.id, target: first.id };
+  const draft = {
+    ...project,
+    creation: undefined,
+    nodes: [first, second, frame],
+    edges: [flow, input],
+  };
+  const id = videoWorkspaceId(first.id);
+  assert.deepEqual(
+    shotWorkspaceGraph(draft, id).nodes.map((node) => node.id),
+    ["opening", "frame"],
+  );
+  assert.deepEqual(
+    shotWorkspaceGraph(draft, videoWorkspaceId(second.id)).nodes.map((node) => node.id),
+    ["ending"],
+  );
+  assert.deepEqual(mergeShotEdges(draft, id, []).edges, [flow]);
+});

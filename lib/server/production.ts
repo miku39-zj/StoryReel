@@ -8,8 +8,18 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { getProject } from "./projects";
 import { getProduction, updateProduction } from "./production-store";
-import { shotRevision, imageRevision, videoRevision, audioRevision, type StoryboardShot } from "@/lib/production/shots";
-import { selectedAsset, type AssetKind, type GenerationJob, type ProductionState } from "@/lib/production/types";
+import {
+  imageRevision,
+  videoRevision,
+  audioRevision,
+  type StoryboardShot,
+} from "@/lib/production/shots";
+import {
+  selectedAsset,
+  type AssetKind,
+  type GenerationJob,
+  type ProductionState,
+} from "@/lib/production/types";
 
 /**
  * Resolve the last-frame URL for a shot with a lastFrameId.
@@ -19,9 +29,7 @@ import { selectedAsset, type AssetKind, type GenerationJob, type ProductionState
 function resolveLastFrameUrl(shot: StoryboardShot, state: ProductionState): string | undefined {
   if (!shot.lastFrameId) return undefined;
   // The keyframe image is stored as an asset whose shotId equals the keyframeId.
-  const asset = state.assets.find(
-    (a) => a.shotId === shot.lastFrameId && a.kind === "image",
-  );
+  const asset = state.assets.find((a) => a.shotId === shot.lastFrameId && a.kind === "image");
   if (!asset || !asset.url) return undefined;
   const selected = state.selected[shot.lastFrameId]?.image;
   if (selected && selected !== asset.id) {
@@ -98,7 +106,11 @@ export async function submitProduction(projectId: string, raw: unknown) {
         const rev = JSON.stringify([kfId, description]);
         // Skip if already queued/running for this revision
         const active = state.jobs.find(
-          (j) => j.shotId === kfId && j.kind === "image" && j.sourceRevision === rev && ["queued", "running"].includes(j.status),
+          (j) =>
+            j.shotId === kfId &&
+            j.kind === "image" &&
+            j.sourceRevision === rev &&
+            ["queued", "running"].includes(j.status),
         );
         if (active) continue;
         // Skip if a valid image is already selected
@@ -168,8 +180,6 @@ export async function submitProduction(projectId: string, raw: unknown) {
       const imgRev = imageRevision(shot);
       const vidRev = videoRevision(shot);
       const audRev = audioRevision(shot);
-      // Legacy callers and canvas reconciliation still use the monolithic revision.
-      const sourceRevision = shotRevision(shot);
 
       const makeJob = (
         kind: AssetKind,
@@ -219,8 +229,7 @@ export async function submitProduction(projectId: string, raw: unknown) {
         continue;
       }
       if (request.kind === "visual") {
-        if (selectedAsset(state, shot.shotId, "image")?.sourceRevision !== imgRev)
-          makeJob("image");
+        if (selectedAsset(state, shot.shotId, "image")?.sourceRevision !== imgRev) makeJob("image");
         if (
           shot.dialogue?.trim() &&
           selectedAsset(state, shot.shotId, "audio")?.sourceRevision !== audRev

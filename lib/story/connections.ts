@@ -18,6 +18,8 @@ export const INPUT_LABELS: Record<InputRole, string> = {
 export function connectionPortData(handle: string | null | undefined): StoryEdgeData {
   if (handle === "first-frame" || handle === "last-frame")
     return { kind: "context", inputRole: handle };
+  if (handle === "reference-image" || handle === "reference-video")
+    return { kind: "context", inputRole: handle };
   return { kind: handle === "context" ? "context" : "flow" };
 }
 

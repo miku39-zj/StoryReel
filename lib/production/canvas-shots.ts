@@ -3,7 +3,7 @@ import type { StoryProject, StoryFlowNode } from "@/lib/story/types";
 import { productionShots } from "./shot-inputs";
 import { selectedAsset, type ProductionState } from "./types";
 import { fingerprint } from "@/lib/canvas/workflow";
-import { shotRevision } from "./shots";
+import { shotRevision, imageRevision, videoRevision } from "./shots";
 
 /** Materialize shot inputs without flattening choices or merging unrelated scene frames. */
 export function syncShotCanvas(project: StoryProject, state: ProductionState): StoryProject {
@@ -20,7 +20,7 @@ export function syncShotCanvas(project: StoryProject, state: ProductionState): S
   const connect = (
     source: string,
     target: string,
-    role?: "prompt" | "first-frame" | "reference-image",
+    role?: "prompt" | "first-frame" | "last-frame" | "reference-image",
   ) => {
     const id = `shot_input:${source}:${target}`;
     edges = edges.filter((e) => e.id !== id);
@@ -69,7 +69,10 @@ export function syncShotCanvas(project: StoryProject, state: ProductionState): S
       const previousImage = nodes.find((n) => n.id === imageId);
       const previousText = nodes.find((n) => n.id === textId);
       const previousVideo = nodes.find((n) => n.id === videoId);
-      const image = selectedAsset(state, shot.shotId, "image");
+      const image =
+        (shot.firstFrameId && selectedAsset(state, shot.firstFrameId, "image")) ||
+        selectedAsset(state, shot.shotId, "image");
+      const tail = shot.lastFrameId && selectedAsset(state, shot.lastFrameId, "image");
       const video = selectedAsset(state, shot.shotId, "video");
       const revision = shotRevision(shot);
       const x = i * 880,
@@ -91,8 +94,7 @@ export function syncShotCanvas(project: StoryProject, state: ProductionState): S
           ...(image
             ? {
                 imageUrl: image.url,
-                generationStatus:
-                  image.sourceRevision === revision ? ("done" as const) : ("idle" as const),
+                generationStatus: "done" as const,
               }
             : {}),
         },
@@ -132,11 +134,29 @@ export function syncShotCanvas(project: StoryProject, state: ProductionState): S
               }
             : {}),
           seedanceDuration: shot.duration <= 5 ? 5 : shot.duration <= 8 ? 8 : 10,
-          ...(video?.sourceRevision === revision
+          ...(video && [revision, videoRevision(shot)].includes(video.sourceRevision)
             ? { videoUrl: video.url, generationStatus: "done" as const }
             : {}),
         },
       });
+      if (tail) {
+        const tailId = `shot_tail:${shot.shotId}`;
+        upsert({
+          id: tailId,
+          type: "image",
+          position: { x, y: y + 530 },
+          data: {
+            nodeType: "image",
+            title: `${title} · 尾帧 ${i + 1}`,
+            canvasShotId: shot.shotId,
+            imageUrl: tail.url,
+            prompt: shot.imagePrompt,
+            seedanceRole: "last_frame",
+            generationStatus: "done",
+          },
+        });
+        connect(tailId, videoId, "last-frame");
+      }
       connect(textId, videoId, "prompt");
       connect(imageId, videoId, "first-frame");
       for (const reference of shot.referenceImages ?? [])
@@ -149,10 +169,11 @@ export function syncShotCanvas(project: StoryProject, state: ProductionState): S
   for (const shot of shots) {
     if (project.shotWorkspaces?.[shot.shotId]?.initialized) continue;
     const node = nodes.find((n) => n.id === `shot_frame:${shot.shotId}`);
-    const asset = selectedAsset(state, shot.shotId, "image");
+    const keyframe = shot.firstFrameId && selectedAsset(state, shot.firstFrameId, "image");
+    const asset = keyframe || selectedAsset(state, shot.shotId, "image");
     if (node && asset)
       node.data.generationFingerprint =
-        asset.sourceRevision === shotRevision(shot)
+        keyframe || [shotRevision(shot), imageRevision(shot)].includes(asset.sourceRevision)
           ? fingerprint(result, node.id)
           : "outdated-storyboard";
   }
@@ -160,14 +181,82 @@ export function syncShotCanvas(project: StoryProject, state: ProductionState): S
     if (project.shotWorkspaces?.[shot.shotId]?.initialized) continue;
     const node = nodes.find((n) => n.type === "video" && n.data.productionShotId === shot.shotId);
     const asset = selectedAsset(state, shot.shotId, "video");
-    if (node && asset?.sourceRevision === shotRevision(shot))
+    if (node && asset && [shotRevision(shot), videoRevision(shot)].includes(asset.sourceRevision))
       node.data.generationFingerprint = fingerprint(result, node.id);
   }
-  return initializeShotWorkspaces(result);
+  return syncSelectedKeyframes(initializeShotWorkspaces(result), state);
 }
 
 function groupInitialized(project: StoryProject, sceneId: string) {
   return project.creation?.storyboardShots
     .filter((s) => s.sceneId === sceneId)
     .every((s) => project.shotWorkspaces?.[s.shotId]?.initialized);
+}
+
+/** Update generated frame links while leaving manually rewired or captured inputs in place. */
+export function syncSelectedKeyframes(project: StoryProject, state: ProductionState): StoryProject {
+  if (!project.shotWorkspaces || project.id !== state.projectId) return project;
+  const nodes = [...project.nodes];
+  const edges = [...project.edges];
+  let changed = false;
+  for (const shot of project.creation?.storyboardShots ?? []) {
+    const videoId = project.shotWorkspaces[shot.shotId]?.mainVideoNodeId;
+    if (!videoId) continue;
+    for (const [role, keyframeId, id] of [
+      ["first-frame", shot.firstFrameId, `shot_frame:${shot.shotId}`],
+      ["last-frame", shot.lastFrameId, `shot_tail:${shot.shotId}`],
+    ] as const) {
+      if (!keyframeId) continue;
+      const asset = selectedAsset(state, keyframeId, "image");
+      if (!asset) continue;
+      const input = edges.find((edge) => edge.target === videoId && edge.data?.inputRole === role);
+      if (input && input.source !== id) continue;
+      if (!input && role === "first-frame") continue;
+      if (
+        edges.some(
+          (edge) =>
+            edge.target === videoId &&
+            ["reference-image", "reference-video"].includes(edge.data?.inputRole ?? ""),
+        )
+      )
+        continue;
+      const video = nodes.find((node) => node.id === videoId);
+      if (
+        !video ||
+        video.data.seedanceMode === "reference-to-video" ||
+        (Array.isArray(video.data.referenceImageUrls) && video.data.referenceImageUrls.length) ||
+        (Array.isArray(video.data.referenceVideoUrls) && video.data.referenceVideoUrls.length)
+      )
+        continue;
+      const index = nodes.findIndex((node) => node.id === id);
+      const previous = nodes[index];
+      if (previous?.data.imageUrl === asset.url && input) continue;
+      if (previous?.data.generationJobId) continue;
+      const node: StoryFlowNode = {
+        id,
+        type: "image",
+        position: previous?.position ?? { x: video.position.x - 420, y: video.position.y + 400 },
+        data: {
+          ...previous?.data,
+          nodeType: "image",
+          title: role === "last-frame" ? "尾帧" : "首帧",
+          canvasShotId: shot.shotId,
+          imageUrl: asset.url,
+          generationStatus: "done",
+          generationFingerprint: undefined,
+        },
+      };
+      if (index < 0) nodes.push(node);
+      else nodes[index] = node;
+      if (!input)
+        edges.push({
+          id: `shot_input:${id}:${videoId}`,
+          source: id,
+          target: videoId,
+          data: { kind: "context", inputRole: role },
+        });
+      changed = true;
+    }
+  }
+  return changed ? { ...project, nodes, edges } : project;
 }

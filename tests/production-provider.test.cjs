@@ -97,6 +97,8 @@ test("real adapters submit shot prompts, persist queue URLs, generate speech and
     const video = calls.find(
       (c) => c.url === "https://queue.fal.run/bytedance/seedance-2.0/image-to-video",
     );
+    assert.match(video.body.prompt, /Action in order: open letter/);
+    assert.doesNotMatch(video.body.prompt, /Render one cinematic opening frame/);
     assert.ok(video.body.image_url.startsWith("data:image/png;base64,"));
     assert.equal(video.body.image_url.split(",")[1], png.toString("base64"));
     assert.equal(video.body.duration, 8);

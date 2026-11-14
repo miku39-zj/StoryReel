@@ -1,9 +1,12 @@
 "use client";
+import { ShotKeyImages } from "./ShotKeyImages";
+import { KeyframePanel } from "./KeyframePanel";
 import { ShotReferencePicker } from "./ShotReferencePicker";
+import { mainVideoNode } from "@/lib/canvas/shot-workspace";
 import { productionShots } from "@/lib/production/shot-inputs";
 import { useCanvasStore } from "@/stores/canvas-store";
 import NextImage from "next/image";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useCreationStore } from "@/stores/creation-store";
 import { Button, Card, Badge, Alert, EmptyState, Progress, Select } from "@/components/ui";
 import { CreationStepLayout } from "./CreationStepLayout";
@@ -20,7 +23,13 @@ const statusLabels = {
   failed: "失败",
   cancelled: "已取消",
 };
-export function ShotProductionPanel({ mode }: { mode: "visual" | "video" }) {
+export function ShotProductionPanel({
+  mode,
+  onOpenShot,
+}: {
+  mode: "visual" | "video";
+  onOpenShot?: (shotId: string) => void;
+}) {
   const rawShots = useCreationStore((s) => s.storyboardShots);
   const nodes = useCanvasStore((s) => s.nodes),
     edges = useCanvasStore((s) => s.edges);
@@ -29,10 +38,35 @@ export function ShotProductionPanel({ mode }: { mode: "visual" | "video" }) {
     return project ? productionShots({ ...project, nodes, edges }) : rawShots;
   }, [rawShots, nodes, edges]);
   const outline = useCreationStore((s) => s.storyOutline);
+  const [episodeFilter, setEpisodeFilter] = useState("all");
+  const sceneById = new Map(outline?.scenes.map((scene) => [scene.id, scene]));
+  const episodeOf = (sceneId: string) => sceneById.get(sceneId)?.episode ?? 1;
+  const episodes = [...new Set(shots.map((shot) => episodeOf(shot.sceneId)))].sort((a, b) => a - b);
+  const visibleShots = shots.filter(
+    (shot) => episodeFilter === "all" || String(episodeOf(shot.sceneId)) === episodeFilter,
+  );
   const setActiveStep = useCreationStore((s) => s.setActiveStep);
-  const { state, error, busy, applied, generate, select, apply } = useShotProduction();
+  const { state, error, busy, applied, generate, select, apply, syncCanvas, loaded } =
+    useShotProduction();
+  const project = useCanvasStore.getState().toProject();
+  const canvasVideos = new Map(
+    shots.flatMap((shot) => {
+      const main = project && mainVideoNode(project, shot.shotId);
+      return main &&
+        (main.data.seedanceMode === "reference-to-video" ||
+          main.data.seedanceMode === "first-last-frame" ||
+          edges.some(
+            (edge) =>
+              edge.target === main.id &&
+              (edge.id.startsWith("outpoint:") || edge.data?.inputRole === "last-frame"),
+          ))
+        ? [[shot.shotId, main] as const]
+        : [];
+    }),
+  );
+  const batchShots = visibleShots.filter((shot) => !canvasVideos.has(shot.shotId));
   const kinds = useMemo<AssetKind[]>(
-    () => (mode === "visual" ? ["image"] : ["video", "audio"]),
+    () => (mode === "visual" ? ["image"] : ["image", "video", "audio"]),
     [mode],
   );
   const active = state.jobs.filter(
@@ -48,15 +82,18 @@ export function ShotProductionPanel({ mode }: { mode: "visual" | "video" }) {
         ).length
       : 0;
   const done = shots.filter((shot) =>
-    kinds.every(
-      (kind) => {
-        if (kind === "audio") return true;
-        const asset = selectedAsset(state, shot.shotId, kind);
-        if (!asset) return false;
-        const rev = kind === "image" ? imageRevision(shot) : kind === "video" ? videoRevision(shot) : audioRevision(shot);
-        return asset.sourceRevision === rev || asset.sourceRevision === shotRevision(shot);
-      },
-    ),
+    kinds.every((kind) => {
+      if (kind === "audio") return true;
+      const asset = selectedAsset(state, shot.shotId, kind);
+      if (!asset) return false;
+      const rev =
+        kind === "image"
+          ? imageRevision(shot)
+          : kind === "video"
+            ? videoRevision(shot)
+            : audioRevision(shot);
+      return asset.sourceRevision === rev || asset.sourceRevision === shotRevision(shot);
+    }),
   ).length;
   useEffect(() => {
     const step = mode === "visual" ? "visual" : "video";
@@ -75,10 +112,10 @@ export function ShotProductionPanel({ mode }: { mode: "visual" | "video" }) {
         mode === "video" ? (
           <Button
             variant="primary"
-            disabled={busy || !shots.length}
+            disabled={busy || !batchShots.length}
             onClick={() =>
               generate(
-                shots.map((s) => s.shotId),
+                batchShots.map((s) => s.shotId),
                 "pipeline",
               )
             }
@@ -88,6 +125,23 @@ export function ShotProductionPanel({ mode }: { mode: "visual" | "video" }) {
         ) : undefined
       }
     >
+      {episodes.length > 1 && (
+        <Select
+          ariaLabel="筛选集数"
+          value={episodeFilter}
+          onChange={setEpisodeFilter}
+          options={[
+            { value: "all", label: "全部集数" },
+            ...episodes.map((episode) => ({ value: String(episode), label: `第 ${episode} 集` })),
+          ]}
+        />
+      )}
+      {mode === "video" && (
+        <details className="rounded-lg border border-white/10 p-3">
+          <summary className="cursor-pointer text-sm">共享关键帧</summary>
+          <KeyframePanel />
+        </details>
+      )}
       {error && <Alert tone="error">{error}</Alert>}
       {state.workerOnline === false && active.length + activeFrames > 0 && (
         <Alert tone="warning">后台服务暂未连接。任务已保存，服务恢复后将继续执行。</Alert>
@@ -119,201 +173,246 @@ export function ShotProductionPanel({ mode }: { mode: "visual" | "video" }) {
             : "space-y-5"
         }
       >
-        {shots.map((shot) => (
-          <Card
-            key={shot.shotId}
-            data-shot-id={shot.shotId}
-            className={
-              mode === "visual"
-                ? "flex min-w-0 flex-col gap-3 overflow-hidden bg-[#171719] p-3"
-                : "space-y-4 p-4"
-            }
-          >
-            <div className="flex flex-wrap justify-between gap-3">
-              <div>
-                {mode === "video" && (
-                  <p className="text-xs text-white/50">
-                    {outline?.scenes.find((s) => s.id === shot.sceneId)?.title ?? shot.sceneId} ·
-                    镜头 {shot.shotIndex + 1} · {shot.duration} 秒
-                  </p>
-                )}
-                <h2
-                  className={
-                    mode === "visual"
-                      ? "line-clamp-2 min-h-10 text-sm font-medium leading-5 text-white/90"
-                      : "mt-2 text-base font-semibold text-white/90"
-                  }
-                >
-                  {shot.action || "未命名镜头"}
-                </h2>
-              </div>
-              {mode === "video" && (
-                <Button
-                  variant="secondary"
-                  disabled={busy}
-                  onClick={() => generate([shot.shotId], "pipeline")}
-                >
-                  生成该镜头全流程
-                </Button>
-              )}
-            </div>
-            {mode === "visual" && <ShotReferencePicker shot={shot} />}
-            <details className="text-xs text-white/55">
-              <summary className="w-fit cursor-pointer rounded focus-visible:outline focus-visible:outline-brand-accent">
-                画面提示词
-              </summary>
-              <p className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words leading-relaxed text-white/65">
-                {shot.imagePrompt}
-              </p>
-            </details>
-            <div
+        {visibleShots.map((shot) => {
+          const main = project && mainVideoNode(project, shot.shotId);
+          const canvasGeneration = canvasVideos.has(shot.shotId);
+          return (
+            <Card
+              key={shot.shotId}
+              data-shot-id={shot.shotId}
               className={
-                mode === "video" &&
-                (shot.dialogue?.trim() || selectedAsset(state, shot.shotId, "audio"))
-                  ? "grid items-start gap-4 lg:grid-cols-2"
-                  : mode === "visual"
-                    ? "mt-auto"
-                    : "space-y-4"
+                mode === "visual"
+                  ? "flex min-w-0 flex-col gap-3 overflow-hidden bg-[#171719] p-3"
+                  : "space-y-4 p-4"
               }
             >
-              {kinds.map((kind) => {
-                const asset = selectedAsset(state, shot.shotId, kind);
-                const versions = state.assets.filter(
-                  (a) => a.shotId === shot.shotId && a.kind === kind,
-                );
-                const shotJob = state.jobs
-                  .filter((j) => j.shotId === shot.shotId && j.kind === kind)
-                  .at(-1);
-                const canvasJob =
-                  kind === "image" ? frameJobs.get(`shot_frame:${shot.shotId}`) : undefined;
-                const latest =
-                  canvasJob && (!shotJob || canvasJob.createdAt >= shotJob.createdAt)
-                    ? canvasJob
-                    : shotJob;
-                const running = latest && ["queued", "running"].includes(latest.status);
-                const silent = kind === "audio" && !shot.dialogue?.trim();
-                if (silent && !asset && !running) return null;
-                return (
-                  <section
-                    key={kind}
-                    aria-label={`${shot.shotId} ${kindLabels[kind]}`}
-                    className="min-w-0 space-y-3 border-t border-white/[0.08] pt-4"
+              <div className="flex flex-wrap justify-between gap-3">
+                <div>
+                  {mode === "video" && (
+                    <p className="text-xs text-white/50">
+                      第 {episodeOf(shot.sceneId)} 集 ·{" "}
+                      {sceneById.get(shot.sceneId)?.title ?? shot.sceneId} · 镜头{" "}
+                      {shot.shotIndex + 1} · {shot.duration} 秒
+                    </p>
+                  )}
+                  <h2
+                    className={
+                      mode === "visual"
+                        ? "line-clamp-2 min-h-10 text-sm font-medium leading-5 text-white/90"
+                        : "mt-2 text-base font-semibold text-white/90"
+                    }
                   >
-                    {mode === "video" && (
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <h3 className="text-sm font-medium">{kindLabels[kind]}</h3>
-                        <Badge>
-                          {silent
-                            ? "无需配音"
-                            : running
-                              ? statusLabels[latest.status]
-                              : asset
-                                ? `已选 v${asset.version}`
-                                : latest
-                                  ? statusLabels[latest.status]
-                                  : "未生成"}
-                        </Badge>
-                      </div>
-                    )}
-                    {mode === "visual" && running && <Badge>{statusLabels[latest.status]}</Badge>}
-                    {asset?.mock && <Badge>演示素材</Badge>}
-                    {asset?.provider === "canvas" && <Badge>来自画布已选素材</Badge>}
-                    {kind === "image" &&
-                      (asset ? (
-                        <NextImage
-                          loading="eager"
-                          unoptimized
-                          width={640}
-                          height={360}
-                          src={asset.url}
-                          alt={`镜头 ${shot.shotIndex + 1} 图片`}
-                          className={
-                            mode === "visual"
-                              ? "aspect-video w-full rounded-lg bg-black object-contain"
-                              : "aspect-video max-h-64 w-full rounded-lg object-contain bg-black"
-                          }
-                        />
-                      ) : (
-                        <div className="flex aspect-video flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-white/[0.08] bg-black/20 text-white/30">
-                          <ImageIcon size={24} strokeWidth={1.5} />
-                          <span className="text-xs">待生成画面</span>
+                    {shot.action || "未命名镜头"}
+                  </h2>
+                </div>
+                {mode === "video" && (
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() =>
+                      canvasGeneration && onOpenShot
+                        ? onOpenShot(shot.shotId)
+                        : generate([shot.shotId], "pipeline")
+                    }
+                  >
+                    {canvasGeneration && onOpenShot ? "前往画布生成" : "生成该镜头全流程"}
+                  </Button>
+                )}
+              </div>
+              <ShotReferencePicker shot={shot} />
+              {mode === "video" &&
+                (main ? (
+                  <ShotKeyImages shotId={shot.shotId} />
+                ) : (
+                  <Button size="sm" disabled={busy || !loaded} onClick={() => void syncCanvas()}>
+                    准备镜头素材与关键画面
+                  </Button>
+                ))}
+              {onOpenShot && (
+                <Button size="sm" onClick={() => onOpenShot(shot.shotId)}>
+                  打开镜头画布
+                </Button>
+              )}
+              <details className="text-xs text-white/55">
+                <summary className="w-fit cursor-pointer rounded focus-visible:outline focus-visible:outline-brand-accent">
+                  画面提示词
+                </summary>
+                <p className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words leading-relaxed text-white/65">
+                  {shot.imagePrompt}
+                </p>
+              </details>
+              <div
+                className={
+                  mode === "video" &&
+                  (shot.dialogue?.trim() || selectedAsset(state, shot.shotId, "audio"))
+                    ? "grid items-start gap-4 lg:grid-cols-2"
+                    : mode === "visual"
+                      ? "mt-auto"
+                      : "space-y-4"
+                }
+              >
+                {kinds.map((kind) => {
+                  const asset = selectedAsset(state, shot.shotId, kind);
+                  const versions = state.assets.filter(
+                    (a) => a.shotId === shot.shotId && a.kind === kind,
+                  );
+                  const shotJob = state.jobs
+                    .filter((j) => j.shotId === shot.shotId && j.kind === kind)
+                    .at(-1);
+                  const canvasJob =
+                    kind === "image" ? frameJobs.get(`shot_frame:${shot.shotId}`) : undefined;
+                  const latest =
+                    canvasJob && (!shotJob || canvasJob.createdAt >= shotJob.createdAt)
+                      ? canvasJob
+                      : shotJob;
+                  const running = latest && ["queued", "running"].includes(latest.status);
+                  const silent = kind === "audio" && !shot.dialogue?.trim();
+                  if (silent && !asset && !running) return null;
+                  return (
+                    <section
+                      key={kind}
+                      aria-label={`${shot.shotId} ${kindLabels[kind]}`}
+                      className="min-w-0 space-y-3 border-t border-white/[0.08] pt-4"
+                    >
+                      {mode === "video" && (
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h3 className="text-sm font-medium">{kindLabels[kind]}</h3>
+                          <Badge>
+                            {silent
+                              ? "无需配音"
+                              : running
+                                ? statusLabels[latest.status]
+                                : asset
+                                  ? `已选 v${asset.version}`
+                                  : latest
+                                    ? statusLabels[latest.status]
+                                    : "未生成"}
+                          </Badge>
                         </div>
-                      ))}
-                    {kind === "video" && asset && (
-                      <video
-                        key={asset.id}
-                        controls
-                        preload="metadata"
-                        src={asset.url}
-                        className="aspect-video max-h-72 w-full rounded-lg bg-black"
-                        aria-label={`镜头 ${shot.shotIndex + 1} 视频预览`}
-                      />
-                    )}
-                    {kind === "audio" && (
-                      <>
-                        {shot.dialogue && <p className="text-xs text-white/60">{shot.dialogue}</p>}
-                        {asset && (
-                          <audio
-                            key={asset.id}
-                            controls
-                            preload="none"
+                      )}
+                      {mode === "visual" && running && <Badge>{statusLabels[latest.status]}</Badge>}
+                      {asset?.mock && <Badge>演示素材</Badge>}
+                      {asset?.provider === "canvas" && <Badge>来自画布已选素材</Badge>}
+                      {kind === "image" &&
+                        (asset ? (
+                          <NextImage
+                            loading="eager"
+                            unoptimized
+                            width={640}
+                            height={360}
                             src={asset.url}
-                            aria-label={`镜头 ${shot.shotIndex + 1} 配音预览`}
-                            className="w-full"
+                            alt={`镜头 ${shot.shotIndex + 1} 图片`}
+                            className={
+                              mode === "visual"
+                                ? "aspect-video w-full rounded-lg bg-black object-contain"
+                                : "aspect-video max-h-64 w-full rounded-lg object-contain bg-black"
+                            }
                           />
+                        ) : (
+                          <div className="flex aspect-video flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-white/[0.08] bg-black/20 text-white/30">
+                            <ImageIcon size={24} strokeWidth={1.5} />
+                            <span className="text-xs">待生成画面</span>
+                          </div>
+                        ))}
+                      {kind === "video" && asset && (
+                        <video
+                          key={asset.id}
+                          controls
+                          preload="metadata"
+                          src={asset.url}
+                          className="aspect-video max-h-72 w-full rounded-lg bg-black"
+                          aria-label={`镜头 ${shot.shotIndex + 1} 视频预览`}
+                        />
+                      )}
+                      {kind === "audio" && (
+                        <>
+                          {shot.dialogue && (
+                            <p className="text-xs text-white/60">{shot.dialogue}</p>
+                          )}
+                          {asset && (
+                            <audio
+                              key={asset.id}
+                              controls
+                              preload="none"
+                              src={asset.url}
+                              aria-label={`镜头 ${shot.shotIndex + 1} 配音预览`}
+                              className="w-full"
+                            />
+                          )}
+                        </>
+                      )}
+                      {!!versions.length && (
+                        <Select
+                          size="sm"
+                          ariaLabel={`${shot.shotId} ${kindLabels[kind]}版本`}
+                          value={asset?.id ?? ""}
+                          disabled={busy}
+                          onChange={select}
+                          options={versions.map((v) => {
+                            const rev =
+                              kind === "image"
+                                ? imageRevision(shot)
+                                : kind === "video"
+                                  ? videoRevision(shot)
+                                  : audioRevision(shot);
+                            const isCurrent =
+                              v.sourceRevision === rev || v.sourceRevision === shotRevision(shot);
+                            return {
+                              value: v.id,
+                              label: `v${v.version} · ${new Date(v.createdAt).toLocaleString("zh-CN")}${!isCurrent ? " · 旧分镜" : ""}`,
+                            };
+                          })}
+                        />
+                      )}
+                      {asset &&
+                        (() => {
+                          const rev =
+                            kind === "image"
+                              ? imageRevision(shot)
+                              : kind === "video"
+                                ? videoRevision(shot)
+                                : audioRevision(shot);
+                          return (
+                            asset.sourceRevision !== rev &&
+                            asset.sourceRevision !== shotRevision(shot)
+                          );
+                        })() && (
+                          <Alert tone="warning">
+                            此版本来自旧分镜。更新镜头素材后再应用到剧情。
+                          </Alert>
                         )}
-                      </>
-                    )}
-                    {!!versions.length && (
-                      <Select
-                        size="sm"
-                        ariaLabel={`${shot.shotId} ${kindLabels[kind]}版本`}
-                        value={asset?.id ?? ""}
-                        disabled={busy}
-                        onChange={select}
-                        options={versions.map((v) => {
-                          const rev = kind === "image" ? imageRevision(shot) : kind === "video" ? videoRevision(shot) : audioRevision(shot);
-                          const isCurrent = v.sourceRevision === rev || v.sourceRevision === shotRevision(shot);
-                          return {
-                            value: v.id,
-                            label: `v${v.version} · ${new Date(v.createdAt).toLocaleString("zh-CN")}${!isCurrent ? " · 旧分镜" : ""}`,
-                          };
-                        })}
-                      />
-                    )}
-                    {asset && (() => {
-                      const rev = kind === "image" ? imageRevision(shot) : kind === "video" ? videoRevision(shot) : audioRevision(shot);
-                      return asset.sourceRevision !== rev && asset.sourceRevision !== shotRevision(shot);
-                    })() && (
-                      <Alert tone="warning">此版本来自旧分镜。更新镜头素材后再应用到剧情。</Alert>
-                    )}
-                    {latest?.error && (
-                      <Alert tone={latest.status === "failed" ? "error" : "warning"}>
-                        {latest.error}
-                      </Alert>
-                    )}
-                    {!silent && (
-                      <Button
-                        variant={mode === "visual" ? "primary" : "outline"}
-                        className={mode === "visual" ? "w-full" : undefined}
-                        disabled={busy || !!running}
-                        onClick={() => generate([shot.shotId], kind)}
-                      >
-                        {running
-                          ? statusLabels[latest.status]
-                          : latest?.status === "failed"
-                            ? `重试${kindLabels[kind]}`
-                            : asset
-                              ? `重新生成${kindLabels[kind]}`
-                              : `生成${kindLabels[kind]}`}
-                      </Button>
-                    )}
-                  </section>
-                );
-              })}
-            </div>
-          </Card>
-        ))}
+                      {latest?.error && (
+                        <Alert tone={latest.status === "failed" ? "error" : "warning"}>
+                          {latest.error}
+                        </Alert>
+                      )}
+                      {!silent && (
+                        <Button
+                          variant={mode === "visual" ? "primary" : "outline"}
+                          className={mode === "visual" ? "w-full" : undefined}
+                          disabled={busy || !!running}
+                          onClick={() =>
+                            kind === "video" && canvasGeneration && onOpenShot
+                              ? onOpenShot(shot.shotId)
+                              : generate([shot.shotId], kind)
+                          }
+                        >
+                          {running
+                            ? statusLabels[latest.status]
+                            : latest?.status === "failed"
+                              ? `重试${kindLabels[kind]}`
+                              : asset
+                                ? `重新生成${kindLabels[kind]}`
+                                : `生成${kindLabels[kind]}`}
+                        </Button>
+                      )}
+                    </section>
+                  );
+                })}
+              </div>
+            </Card>
+          );
+        })}
       </div>
       {!!shots.length && (
         <div className="flex flex-wrap justify-end gap-3 border-t border-white/10 pt-5">

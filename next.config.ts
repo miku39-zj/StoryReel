@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   experimental: {
     // Required for @xyflow/react server components
   },
-  outputFileTracingRoot: "/Users/lizejun/newbee",
+  outputFileTracingRoot: __dirname,
 };
 
 export default nextConfig;

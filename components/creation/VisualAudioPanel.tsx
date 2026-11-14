@@ -17,23 +17,31 @@ const TABS = [
   { id: "frames", label: "画面", icon: ImageIcon },
 ] as const;
 
-export function VisualAudioPanel() {
+export function VisualAudioPanel({ assetsOnly = false }: { assetsOnly?: boolean }) {
+  const tabs = assetsOnly ? TABS.slice(0, 2) : TABS;
   const [selectedTab, setTab] = useState<(typeof TABS)[number]["id"]>("characters");
-  const tab = TABS.some((item) => item.id === selectedTab) ? selectedTab : "frames";
+  const tab = tabs.some((item) => item.id === selectedTab) ? selectedTab : "frames";
   const tabId = useId();
   const { state, busy, error, loadError, generateVisuals, resumeVisuals } = useShotProduction();
   const keyframes = useCreationStore((s) => s.keyframes);
   const sharedCount = keyframes.filter((kf) => {
     const shots = useCreationStore.getState().storyboardShots;
-    const refs = shots.filter(
-      (s) => s.firstFrameId === kf.id || s.lastFrameId === kf.id,
-    ).length;
+    const refs = shots.filter((s) => s.firstFrameId === kf.id || s.lastFrameId === kf.id).length;
     return refs > 1;
   }).length;
 
   // Only show batch generate button for tabs that use the visual batch system
-  const batchTab = tab === "characters" ? "characters" : tab === "backgrounds" ? "scenes" : tab === "frames" ? "frames" : null;
-  const batch = batchTab ? state.visualBatches?.[batchTab as keyof typeof state.visualBatches] : null;
+  const batchTab =
+    tab === "characters"
+      ? "characters"
+      : tab === "backgrounds"
+        ? "scenes"
+        : tab === "frames"
+          ? "frames"
+          : null;
+  const batch = batchTab
+    ? state.visualBatches?.[batchTab as keyof typeof state.visualBatches]
+    : null;
   const running = batch?.status === "running";
   const waiting = running && state.workerOnline !== true;
   const checking = running && !!loadError;
@@ -44,7 +52,7 @@ export function VisualAudioPanel() {
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.07] px-3 py-2 lg:px-4">
         <h1 className="sr-only">角色、场景与画面</h1>
         <div role="tablist" aria-label="角色、场景与画面" className={segmentedGroupClassName}>
-          {TABS.map(({ id, label: tabLabel, icon: Icon }, index) => (
+          {tabs.map(({ id, label: tabLabel, icon: Icon }, index) => (
             <button
               key={id}
               type="button"
@@ -60,11 +68,11 @@ export function VisualAudioPanel() {
                 event.preventDefault();
                 const next =
                   event.key === "Home"
-                    ? TABS[0]
+                    ? tabs[0]
                     : event.key === "End"
-                      ? TABS.at(-1)!
-                      : TABS[
-                          (index + (event.key === "ArrowLeft" ? TABS.length - 1 : 1)) % TABS.length
+                      ? tabs.at(-1)!
+                      : tabs[
+                          (index + (event.key === "ArrowLeft" ? tabs.length - 1 : 1)) % tabs.length
                         ];
                 setTab(next.id);
                 event.currentTarget.parentElement
@@ -88,7 +96,11 @@ export function VisualAudioPanel() {
             size="sm"
             variant="primary"
             disabled={busy || (running && !waiting && !checking)}
-            onClick={() => void (running ? resumeVisuals(batchTab as Parameters<typeof resumeVisuals>[0]) : generateVisuals(batchTab as Parameters<typeof generateVisuals>[0]))}
+            onClick={() =>
+              void (running
+                ? resumeVisuals(batchTab as Parameters<typeof resumeVisuals>[0])
+                : generateVisuals(batchTab as Parameters<typeof generateVisuals>[0]))
+            }
           >
             {(busy || (running && !waiting && !checking)) && (
               <Loader2 size={14} className="animate-spin" />
@@ -116,7 +128,7 @@ export function VisualAudioPanel() {
           )}
         </div>
       )}
-      {TABS.map(({ id }) => (
+      {tabs.map(({ id }) => (
         <div
           key={id}
           role="tabpanel"
@@ -139,4 +151,3 @@ export function VisualAudioPanel() {
     </div>
   );
 }
-

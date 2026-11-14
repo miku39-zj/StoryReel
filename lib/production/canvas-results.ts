@@ -2,8 +2,18 @@ import type { StoryProject } from "@/lib/story/types";
 import { mainVideoNode } from "@/lib/canvas/shot-workspace";
 import { fingerprint } from "@/lib/canvas/workflow";
 import { productionShots } from "./shot-inputs";
-import { shotRevision } from "./shots";
+import { shotRevision, imageRevision, videoRevision, audioRevision } from "./shots";
 import { selectedAsset, type AssetVersion, type ProductionState } from "./types";
+
+function matchesShotAsset(shot: ReturnType<typeof productionShots>[number], asset: AssetVersion) {
+  const revision =
+    asset.kind === "image"
+      ? imageRevision(shot)
+      : asset.kind === "video"
+        ? videoRevision(shot)
+        : audioRevision(shot);
+  return asset.sourceRevision === revision || asset.sourceRevision === shotRevision(shot);
+}
 
 /** Explicit version choices may replace the output; background completion only fills empty videos. */
 export function applyShotAsset(project: StoryProject, asset: AssetVersion): StoryProject {
@@ -17,7 +27,7 @@ export function applyShotAsset(project: StoryProject, asset: AssetVersion): Stor
   if (node.data[field] === asset.url && node.data[`production${asset.kind}AssetId`] === asset.id)
     return project;
   const shot = productionShots(project).find((s) => s.shotId === asset.shotId);
-  const current = !!shot && shotRevision(shot) === asset.sourceRevision;
+  const current = !!shot && matchesShotAsset(shot, asset);
   const patched: typeof node = {
     ...node,
     data: {
@@ -55,7 +65,7 @@ export function fillShotCanvasResults(project: StoryProject, state: ProductionSt
     if (!project.shotWorkspaces?.[shot.shotId]?.initialized) continue;
     for (const kind of ["image", "video", "audio"] as const) {
       const asset = selectedAsset(state, shot.shotId, kind);
-      if (!asset || asset.sourceRevision !== shotRevision(shot)) continue;
+      if (!asset || !matchesShotAsset(shot, asset)) continue;
       const node =
         kind === "image"
           ? result.nodes.find((n) => n.id === `shot_frame:${shot.shotId}`)

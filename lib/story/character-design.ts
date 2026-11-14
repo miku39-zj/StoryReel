@@ -29,7 +29,7 @@ export function initializeCharacterAssets(project: StoryProject): StoryProject {
         characterName: character.name,
         assetKind: "character",
         assetDescription: character.description,
-        prompt: `Character design reference sheet. One fictional character: ${character.name}. Consistent front and three-quarter views, clear face and full outfit, neutral background. Visual style: ${project.creation?.storyOutline?.visualStyle ?? "cinematic"}. No scene action, no captions.`,
+        prompt: `Character design reference sheet. One fictional character: ${character.name}. Use the fixed character description to preserve face, hair, body proportions, wardrobe and signature accessories across views. Show a front and a three-quarter view with matching proportions, clear face and full outfit under even lighting against a neutral background. Visual style: ${project.creation?.storyOutline?.visualStyle ?? "cinematic"}. No scene action, no captions.`,
         generationStatus: "idle",
       },
     });

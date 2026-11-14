@@ -334,10 +334,32 @@ function VideoNodeEditor({
               id="video-mode"
               size="sm"
               value={inputs.mode}
-              disabled={inputs.inputs.some((i) => i.role !== "prompt")}
-              onChange={(value) =>
-                onChange({ seedanceMode: value as VideoNodeData["seedanceMode"] })
-              }
+              onChange={(value) => {
+                const store = useCanvasStore.getState();
+                const roles =
+                  value === "reference-to-video"
+                    ? ["first-frame", "last-frame"]
+                    : value === "text-to-video"
+                      ? ["first-frame", "last-frame", "reference-image", "reference-video"]
+                      : value === "image-to-video"
+                        ? ["last-frame", "reference-image", "reference-video"]
+                        : ["reference-image", "reference-video"];
+                const remove = new Set(
+                  inputs.inputs
+                    .filter((input) => roles.includes(input.role))
+                    .map((input) => input.edge.id),
+                );
+                if (remove.size)
+                  store.onEdgesChange(store.edges.filter((edge) => !remove.has(edge.id)));
+                onChange({
+                  seedanceMode: value as VideoNodeData["seedanceMode"],
+                  ...(roles.includes("first-frame") ? { firstFrameUrl: undefined } : {}),
+                  ...(roles.includes("last-frame") ? { lastFrameUrl: undefined } : {}),
+                  ...(roles.includes("reference-image")
+                    ? { referenceImageUrls: undefined, referenceVideoUrls: undefined }
+                    : {}),
+                });
+              }}
               options={[
                 { value: "text-to-video", label: "文生视频" },
                 { value: "image-to-video", label: "图生视频" },

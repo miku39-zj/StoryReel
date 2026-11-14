@@ -3,6 +3,8 @@
 import { useEffect, useRef } from "react";
 import { useNodesInitialized, useReactFlow } from "@xyflow/react";
 import { useCanvasStore } from "@/stores/canvas-store";
+import { routeWorkspaceGraph } from "@/lib/canvas/route-workspace";
+import { useCreationStore } from "@/stores/creation-store";
 import { shotWorkspaceGraph } from "@/lib/canvas/shot-workspace";
 import { entryFocusNodeIds } from "@/lib/canvas/entry-focus";
 
@@ -13,6 +15,7 @@ export function CanvasEntryViewport() {
     edges = useCanvasStore((state) => state.edges);
   const shotId = useCanvasStore((s) => s.activeShotId),
     workspaces = useCanvasStore((s) => s.shotWorkspaces);
+  const hasStory = useCreationStore((state) => !!state.storyOutline);
   const initialized = useNodesInitialized(),
     flow = useReactFlow(),
     focused = useRef<string | null>(null);
@@ -29,7 +32,8 @@ export function CanvasEntryViewport() {
       void flow.setViewport(saved, { duration: 0 });
       return;
     }
-    const ids = shotId ? graph.nodes.map((n) => n.id) : entryFocusNodeIds(nodes, edges);
+    const route = hasStory && !shotId ? routeWorkspaceGraph(nodes, edges) : graph;
+    const ids = shotId ? graph.nodes.map((n) => n.id) : entryFocusNodeIds(route.nodes, route.edges);
     if (ids.length)
       void flow.fitView({
         nodes: ids.map((id) => ({ id })),
@@ -38,6 +42,6 @@ export function CanvasEntryViewport() {
         duration: 0,
       });
     else void flow.setCenter(0, 0, { zoom: 1, duration: 0 });
-  }, [projectId, nodes, edges, initialized, flow, shotId, workspaces]);
+  }, [projectId, nodes, edges, initialized, flow, shotId, workspaces, hasStory]);
   return null;
 }

@@ -143,7 +143,29 @@ export function ShotReferencePicker({ shot }: { shot: StoryboardShot }) {
                       item.shotId === shot.shotId ? { ...item, referenceNodeIds: draft } : item,
                     ),
                   );
-                  useCanvasStore.getState().persist();
+                  const canvas = useCanvasStore.getState();
+                  const target = `shot_frame:${shot.shotId}`;
+                  if (canvas.nodes.some((node) => node.id === target)) {
+                    const edges = canvas.edges.filter(
+                      (edge) =>
+                        !(
+                          edge.target === target &&
+                          edge.id.startsWith("shot_input:") &&
+                          edge.data?.inputRole === "reference-image"
+                        ),
+                    );
+                    for (const source of draft) {
+                      if (edges.some((edge) => edge.source === source && edge.target === target))
+                        continue;
+                      edges.push({
+                        id: `shot_input:${source}:${target}`,
+                        source,
+                        target,
+                        data: { kind: "context", inputRole: "reference-image" },
+                      });
+                    }
+                    canvas.onEdgesChange(edges);
+                  } else canvas.persist();
                   setOpen(false);
                 }}
               >

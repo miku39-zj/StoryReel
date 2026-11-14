@@ -7,9 +7,17 @@ import { useCreationStore } from "@/stores/creation-store";
 import { useCanvasStore } from "@/stores/canvas-store";
 import { validateProject } from "@/lib/story/graph";
 import { isLinearWork } from "@/lib/story/creation-brief";
-import { ShieldCheck, CheckCircle, AlertTriangle, XCircle, Share2, Download, Loader2 } from "lucide-react";
-import { useState, useEffect, useCallback } from "react";
-import { Button, Card, Badge, Alert, EmptyState, Input, Label, Progress } from "@/components/ui";
+import {
+  ShieldCheck,
+  CheckCircle,
+  AlertTriangle,
+  XCircle,
+  Share2,
+  Download,
+  Loader2,
+} from "lucide-react";
+import { useState, useEffect } from "react";
+import { Button, Card, Badge, Alert, EmptyState, Input, Label } from "@/components/ui";
 import { StorySummary, CreationStepLayout } from "./CreationStepLayout";
 import { saveProject } from "@/lib/story/project-cache";
 import { PublicationHistory } from "./PublicationHistory";
@@ -28,6 +36,16 @@ export function ValidationPanel() {
   const projectId = useCanvasStore((s) => s.projectId);
 
   const isLinear = isLinearWork(brief);
+  const episodes = [...new Set(storyOutline?.scenes.map((scene) => scene.episode ?? 1))].sort(
+    (a, b) => a - b,
+  );
+  const [episode, setEpisode] = useState("");
+  const exportEpisode =
+    brief.workType === "multi-episode"
+      ? episodes.includes(Number(episode))
+        ? episode
+        : String(episodes[0] ?? 1)
+      : "";
 
   const [running, setRunning] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -37,30 +55,13 @@ export function ValidationPanel() {
   // Export MP4 state
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  const [exportReady, setExportReady] = useState<{ ready: number; total: number } | null>(null);
 
   useEffect(() => {
     setValidationResult(null);
     setShareLink(null);
     setPublishError(null);
     setExportError(null);
-    setExportReady(null);
   }, [nodes, edges, startNodeId, projectName, projectId, setValidationResult, shotWorkspaces]);
-
-  // Check export readiness whenever projectId changes or after validation.
-  const checkExportReady = useCallback(async () => {
-    if (!projectId) return;
-    try {
-      const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/export`);
-      if (!res.ok) return;
-      const data = await res.json() as { ready: number; total: number; canExport: boolean };
-      setExportReady({ ready: data.ready, total: data.total });
-    } catch {
-      // Ignore — not critical
-    }
-  }, [projectId]);
-
-  useEffect(() => { void checkExportReady(); }, [checkExportReady]);
 
   const handleValidate = () => {
     const project = useCanvasStore.getState().toProject();
@@ -70,7 +71,6 @@ export function ValidationPanel() {
     setValidationResult(result);
     setStepStatus("validate", result.valid ? "done" : "error");
     setRunning(false);
-    void checkExportReady();
   };
 
   const handlePublish = async () => {
@@ -106,18 +106,16 @@ export function ValidationPanel() {
     setExporting(true);
     setExportError(null);
     try {
-      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/export`, {
-        method: "POST",
-      });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error((data as { error?: string }).error || "导出失败，请重试");
-      }
-      // Stream file download
-      const blob = await response.blob();
-      const disposition = response.headers.get("content-disposition") ?? "";
-      const nameMatch = disposition.match(/filename\*=UTF-8''(.+)/i);
-      const filename = nameMatch ? decodeURIComponent(nameMatch[1]) : `${projectName || projectId}.mp4`;
+      const draft = useCanvasStore.getState().toProject();
+      if (draft) await saveProject(draft);
+      const endpoint = `/api/projects/${encodeURIComponent(projectId)}/export${exportEpisode ? `?episode=${exportEpisode}` : ""}`;
+      const response = await fetch(endpoint, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "导出失败，请重试");
+      const download = await fetch(endpoint);
+      if (!download.ok) throw new Error("成片下载失败，请重试");
+      const blob = await download.blob();
+      const filename = `${projectName || projectId}${exportEpisode ? ` · 第 ${exportEpisode} 集` : ""}.mp4`;
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -227,11 +225,25 @@ export function ValidationPanel() {
               </div>
               <div className="flex flex-wrap gap-2">
                 {/* Linear works: export MP4 */}
+                {exportEpisode && (
+                  <select
+                    aria-label="导出集数"
+                    className="rounded bg-oii-surface px-2 text-sm"
+                    value={exportEpisode}
+                    onChange={(event) => setEpisode(event.target.value)}
+                  >
+                    {episodes.map((number) => (
+                      <option key={number} value={number}>
+                        第 {number} 集
+                      </option>
+                    ))}
+                  </select>
+                )}
                 {isLinear && (
                   <Button
                     variant="primary"
                     onClick={() => void handleExportMp4()}
-                    disabled={exporting || (exportReady !== null && exportReady.ready < exportReady.total)}
+                    disabled={exporting}
                   >
                     {exporting ? (
                       <Loader2 size={15} className="animate-spin" />
@@ -255,19 +267,11 @@ export function ValidationPanel() {
               </div>
             </div>
             {/* Export readiness bar for linear projects */}
-            {isLinear && exportReady !== null && exportReady.total > 0 && (
-              <div className="mt-4 space-y-1.5">
-                <div className="flex justify-between text-xs text-white/50">
-                  <span>视频就绪</span>
-                  <span>{exportReady.ready} / {exportReady.total}</span>
-                </div>
-                <Progress value={exportReady.ready} max={exportReady.total} label="视频就绪进度" />
-                {exportReady.ready < exportReady.total && (
-                  <p className="text-xs text-amber-300/80">请先在「视频生成」步骤完成所有镜头，再导出。</p>
-                )}
-              </div>
+            {exportError && (
+              <Alert tone="error" className="mt-3">
+                {exportError}
+              </Alert>
             )}
-            {exportError && <Alert tone="error" className="mt-3">{exportError}</Alert>}
             {shareLink && (
               <div className="mt-5 border-t border-white/[0.08] pt-5">
                 <Label htmlFor="story-share-link">分享链接</Label>

@@ -1,11 +1,13 @@
 "use client";
 
+import { isLinearWork } from "@/lib/story/creation-brief";
+import { routeWorkspaceGraph } from "@/lib/canvas/route-workspace";
 import { ShotWorkspaceBar } from "@/components/canvas/ShotWorkspaceBar";
 import { useCreationStore } from "@/stores/creation-store";
 import { shotWorkspaceGraph } from "@/lib/canvas/shot-workspace";
 import { useShotProduction } from "@/components/creation/useShotProduction";
 import { CanvasTools } from "@/components/canvas/CanvasTools";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { useReactFlow, useViewport, useInternalNode } from "@xyflow/react";
 import {
   Film,
@@ -43,6 +45,8 @@ export function CanvasWorkspace() {
   const { syncCanvas, loaded, busy: syncing, error: syncError } = useShotProduction();
   const shotId = useCanvasStore((s) => s.activeShotId);
   const settings = useCanvasStore((s) => s.shotWorkspaces);
+  const linear = useCreationStore((s) => isLinearWork(s.appliedStorySource?.brief ?? s.brief));
+  const hasStory = useCreationStore((s) => !!s.storyOutline);
   const shots = useCreationStore((s) => s.storyboardShots);
   const attempted = useRef("");
   useEffect(() => {
@@ -55,8 +59,13 @@ export function CanvasWorkspace() {
     attempted.current = key;
     void syncCanvas();
   }, [loaded, syncing, shots, settings, syncCanvas]);
-  const nodes = useCanvasStore((s) => s.nodes);
-  const edges = useCanvasStore((s) => s.edges);
+  const allNodes = useCanvasStore((s) => s.nodes);
+  const allEdges = useCanvasStore((s) => s.edges);
+  const { nodes, edges } = useMemo(
+    () =>
+      hasStory ? routeWorkspaceGraph(allNodes, allEdges) : { nodes: allNodes, edges: allEdges },
+    [hasStory, allNodes, allEdges],
+  );
   const selectedNodeId = useCanvasStore((s) => s.selectedNodeId);
   const selectedEdgeId = useCanvasStore((s) => s.selectedEdgeId);
   const addNode = useCanvasStore((s) => s.addNode);
@@ -144,6 +153,11 @@ export function CanvasWorkspace() {
           {syncError}
         </div>
       )}
+      {!shotId && (
+        <div className="absolute left-3 top-20 z-20 sm:left-4">
+          <Badge>剧情路线</Badge>
+        </div>
+      )}
       {shotId && <ShotWorkspaceBar />}
       <div id="story-canvas-stage" className="absolute inset-0">
         <StoryCanvas />
@@ -153,7 +167,12 @@ export function CanvasWorkspace() {
         className="absolute bottom-3 left-1/2 z-20 flex max-w-[calc(100%-24px)] -translate-x-1/2 items-center gap-1 overflow-x-auto rounded-xl p-1.5 shadow-xl sm:bottom-4"
         aria-label="添加节点工具栏"
       >
-        {NODE_TYPES.map(({ type, label, icon: Icon }) => (
+        {NODE_TYPES.filter(({ type }) =>
+          shotId
+            ? ["text", "image"].includes(type)
+            : (!hasStory || !["text", "image"].includes(type)) &&
+              (!linear || !["choice", "condition", "merge"].includes(type)),
+        ).map(({ type, label, icon: Icon }) => (
           <Tooltip key={type} content={`添加${label}节点`}>
             <Button
               variant="ghost"
@@ -166,19 +185,23 @@ export function CanvasWorkspace() {
             </Button>
           </Tooltip>
         ))}
-        <div className="mx-1 h-6 w-px shrink-0 bg-white/10" />
-        <Tooltip content="描述新片段">
-          <Button
-            variant={composerOpen ? "outline" : "secondary"}
-            className="h-8 shrink-0 gap-1.5 px-2.5"
-            aria-label="描述新片段"
-            aria-expanded={composerOpen}
-            onClick={openComposer}
-          >
-            <Plus size={16} />
-            <span className="hidden xl:inline">描述新片段</span>
-          </Button>
-        </Tooltip>
+        {!shotId && (
+          <>
+            <div className="mx-1 h-6 w-px shrink-0 bg-white/10" />
+            <Tooltip content="描述新片段">
+              <Button
+                variant={composerOpen ? "outline" : "secondary"}
+                className="h-8 shrink-0 gap-1.5 px-2.5"
+                aria-label="描述新片段"
+                aria-expanded={composerOpen}
+                onClick={openComposer}
+              >
+                <Plus size={16} />
+                <span className="hidden xl:inline">描述新片段</span>
+              </Button>
+            </Tooltip>
+          </>
+        )}
       </Card>
 
       <Card
@@ -215,13 +238,13 @@ export function CanvasWorkspace() {
       </Card>
 
       {!shotId && (
-        <div className="pointer-events-none absolute left-4 top-20 hidden items-center gap-2 sm:flex">
+        <div className="pointer-events-none absolute left-4 top-32 hidden items-center gap-2 sm:flex">
           <Badge className="bg-oii-surface">{nodes.length} 个节点</Badge>
           <Badge className="bg-oii-surface">{edges.length} 条连接</Badge>
         </div>
       )}
       <div
-        className="absolute left-3 top-28 z-20 flex flex-wrap gap-1 rounded-lg border border-white/[0.06] bg-oii-surface p-1 sm:left-4 sm:top-28"
+        className="absolute left-3 top-40 z-20 flex flex-wrap gap-1 rounded-lg border border-white/[0.06] bg-oii-surface p-1 sm:left-4 sm:top-40"
         style={shotId ? { top: 136 } : undefined}
       >
         <Button
@@ -241,7 +264,7 @@ export function CanvasWorkspace() {
           重做
         </Button>
         <CanvasTools />
-        {!shotId && (
+        {!shotId && !linear && (
           <Button
             variant="secondary"
             size="sm"

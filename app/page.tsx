@@ -192,7 +192,7 @@ export default function HomePage() {
       互动剧: { mode: "interactive", workType: "interactive" },
       单集短剧: { mode: "linear", workType: "single-episode" },
       短剧: { mode: "linear", workType: "single-episode" },
-      多集短剧: { mode: "linear", workType: "multi-episode" },
+      多集连续剧: { mode: "linear", workType: "multi-episode" },
       角色: { mode: "character" },
       场景: { mode: "scene" },
       分镜: { mode: "storyboard" },
@@ -310,7 +310,8 @@ export default function HomePage() {
             composerBrief(tool === "storyboard" ? "分镜" : creationMode),
           ),
           brief: composerBrief(tool === "storyboard" ? "分镜" : creationMode),
-          activeStep: tool === "storyboard" || creationMode === "短剧" ? "storyboard" : "branch",
+          activeStep:
+            tool === "storyboard" ? "storyboard" : creationMode === "互动剧" ? "branch" : "visual",
           stepStatuses: {
             story: "done",
             branch: "idle",
@@ -782,7 +783,7 @@ export default function HomePage() {
                     alt=""
                   />
                   <div className="studio-mode-tabs" aria-label="创作类型">
-                    {["互动剧", "单集短剧", "多集短剧", "角色", "场景", "分镜"].map((mode) => (
+                    {["单集短剧", "多集连续剧", "互动剧", "角色", "场景", "分镜"].map((mode) => (
                       <button
                         key={mode}
                         aria-pressed={creationMode === mode}

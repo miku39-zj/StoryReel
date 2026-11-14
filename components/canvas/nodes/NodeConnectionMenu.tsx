@@ -27,7 +27,12 @@ export function NodeConnectionMenu({
   const edges = useCanvasStore((s) => s.edges);
   const title = String(nodes.find((n) => n.id === nodeId)?.data.title || "剧情节点");
   const { screenToFlowPosition } = useReactFlow();
-  const options = connectionNodeOptions(type, direction);
+  const videoCanvas = useCanvasStore((state) => state.activeShotId?.startsWith("video-canvas:"));
+  const options = connectionNodeOptions(type, direction).filter(
+    (option) =>
+      !videoCanvas ||
+      (option.data.kind === "context" && (option.type !== "video" || direction === "input")),
+  );
   if (!options.length) return null;
   const icons = {
     text: FileText,

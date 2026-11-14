@@ -41,9 +41,12 @@ export interface ExportResult {
  */
 async function probeDuration(filePath: string): Promise<number> {
   const { stdout } = await execFileAsync("ffprobe", [
-    "-v", "error",
-    "-show_entries", "format=duration",
-    "-of", "default=noprint_wrappers=1:nokey=1",
+    "-v",
+    "error",
+    "-show_entries",
+    "format=duration",
+    "-of",
+    "default=noprint_wrappers=1:nokey=1",
     filePath,
   ]);
   const dur = parseFloat(stdout.trim());
@@ -91,10 +94,14 @@ export async function exportEpisode(plan: ExportPlan): Promise<ExportResult> {
         const mixed = path.join(tmpDir, `mixed_${seg.shotId}.mp4`);
         await execFileAsync("ffmpeg", [
           "-y",
-          "-i", seg.videoPath,
-          "-i", seg.audioPath,
-          "-c:v", "copy",
-          "-c:a", "aac",
+          "-i",
+          seg.videoPath,
+          "-i",
+          seg.audioPath,
+          "-c:v",
+          "copy",
+          "-c:a",
+          "aac",
           "-shortest",
           mixed,
         ]);
@@ -106,24 +113,41 @@ export async function exportEpisode(plan: ExportPlan): Promise<ExportResult> {
 
     // 2. Write concat list.
     const listPath = path.join(tmpDir, "concat.txt");
-    const listContent = readyPaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join("\n");
+    const listContent = readyPaths
+      .map((p, index) => {
+        const file = `file '${p.replace(/'/g, "'\\''")}'`;
+        const end = plan.segments[index].outPoint;
+        return end === undefined ? file : `${file}\noutpoint ${end}`;
+      })
+      .join("\n");
     await writeFile(listPath, listContent, "utf8");
 
     // 3. Encode final MP4: unify frame rate (24 fps), pixel format, resolution (1920×1080 pad).
     await mkdir(path.dirname(plan.outputPath), { recursive: true });
     await execFileAsync("ffmpeg", [
       "-y",
-      "-f", "concat",
-      "-safe", "0",
-      "-i", listPath,
-      "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
-      "-r", "24",
-      "-c:v", "libx264",
-      "-preset", "fast",
-      "-crf", "23",
-      "-c:a", "aac",
-      "-b:a", "128k",
-      "-movflags", "+faststart",
+      "-f",
+      "concat",
+      "-safe",
+      "0",
+      "-i",
+      listPath,
+      "-vf",
+      "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+      "-r",
+      "24",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "fast",
+      "-crf",
+      "23",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-movflags",
+      "+faststart",
       plan.outputPath,
     ]);
 

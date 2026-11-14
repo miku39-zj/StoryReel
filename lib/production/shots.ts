@@ -144,7 +144,31 @@ export function audioRevision(shot: StoryboardShot): string {
   ]);
 }
 export function shotPrompt(shot: StoryboardShot) {
-  return `${shot.imagePrompt}\nSelected character and environment references: ${(shot.referenceImages ?? []).map((image, index) => `Reference ${index + 1}: ${image.description}`).join("; ")}\nVisual style: ${shot.visualStyle ?? "cinematic"}\nCharacter bible (render only characters present in the action): ${(shot.characterDescriptions ?? []).join("; ")}\nAction: ${shot.action}\nCamera: ${shot.frameType}, ${shot.cameraMove}\nLighting: ${shot.lighting}`;
+  const references = (shot.referenceImages ?? [])
+    .map((image, index) => `Reference ${index + 1}: ${image.description}`)
+    .join("\n");
+  return [
+    "Render one cinematic opening frame. Use the starting pose and composition described below.",
+    shot.imagePrompt,
+    `Upcoming action (context for the opening pose): ${shot.action}`,
+    references,
+    `Visual style: ${shot.visualStyle ?? "cinematic"}`,
+    `Cast (only characters present in this shot): ${(shot.characterDescriptions ?? []).join("; ")}`,
+    `Framing: ${shot.frameType}. Lighting: ${shot.lighting}.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function shotVideoPrompt(shot: StoryboardShot, hasLastFrame: boolean) {
+  return [
+    "Generate one continuous shot. Start from the supplied opening image and preserve character identity, costume, props and scene geometry.",
+    `Action in order: ${shot.action}`,
+    `Camera: ${shot.frameType}, ${shot.cameraMove}. Lighting: ${shot.lighting}.`,
+    hasLastFrame
+      ? "Finish at the supplied end frame. Build a continuous transition from the opening pose to the ending pose."
+      : "Finish on the visible result of the action without changing scenes.",
+  ].join("\n");
 }
 
 /** Stable role voice, shared by every shot in a project. Explicit voice overrides remain possible. */

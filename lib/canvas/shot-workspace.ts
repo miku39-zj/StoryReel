@@ -10,11 +10,23 @@ export interface ShotWorkspace {
   positions?: Record<string, { x: number; y: number }>;
   viewport?: { x: number; y: number; zoom: number };
 }
+export function videoWorkspaceId(nodeId: string) {
+  return `video-canvas:${nodeId}`;
+}
+
+export function workspaceVideo(project: StoryProject, workspaceId: string) {
+  return project.nodes.find(
+    (node) => node.type === "video" && videoWorkspaceId(node.id) === workspaceId,
+  );
+}
+
 export function nodeShotId(node: StoryFlowNode): string | undefined {
   const value = node.data.canvasShotId ?? node.data.productionShotId;
   return typeof value === "string" ? value : undefined;
 }
 export function mainVideoNode(project: StoryProject, shotId: string) {
+  const root = workspaceVideo(project, shotId);
+  if (root) return root;
   const setting = project.shotWorkspaces?.[shotId];
   const id = setting?.mainVideoNodeId;
   return project.nodes.find(
@@ -27,18 +39,33 @@ export function mainVideoNode(project: StoryProject, shotId: string) {
 }
 /** A view of one shot; reference assets remain shared, not copied into every workspace. */
 export function shotWorkspaceGraph(project: StoryProject, shotId: string) {
+  const byId = new Map(project.nodes.map((node) => [node.id, node]));
+  const contextEdges = new Set<string>();
+  const incoming = new Map<string, string[]>();
+  for (const edge of project.edges) {
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (!source || !target || !isContextEdge(edge, [source, target])) continue;
+    contextEdges.add(edge.id);
+    const inputs = incoming.get(edge.target) ?? [];
+    inputs.push(edge.source);
+    incoming.set(edge.target, inputs);
+  }
+  const root = workspaceVideo(project, shotId);
   const owned = project.nodes.filter((n) => nodeShotId(n) === shotId && !n.data.canvasDetached);
+  if (root) owned.push(root);
   const ids = new Set(owned.map((n) => n.id));
   const queue = [...ids];
-  for (let i = 0; i < queue.length; i++)
-    for (const edge of project.edges) {
-      if (edge.target !== queue[i] || !isContextEdge(edge, project.nodes) || ids.has(edge.source))
-        continue;
-      const source = project.nodes.find((n) => n.id === edge.source);
-      if (!source || (nodeShotId(source) && nodeShotId(source) !== shotId)) continue;
-      ids.add(source.id);
-      queue.push(source.id);
+  for (const id of queue) {
+    for (const sourceId of incoming.get(id) ?? []) {
+      if (ids.has(sourceId)) continue;
+      const source = byId.get(sourceId)!;
+      const owner = nodeShotId(source);
+      if (owner && owner !== shotId && owner !== (root && nodeShotId(root))) continue;
+      ids.add(sourceId);
+      queue.push(sourceId);
     }
+  }
   const settings = project.shotWorkspaces?.[shotId];
   const references = project.nodes.filter((n) => ids.has(n.id) && nodeShotId(n) !== shotId);
   const nodes = project.nodes
@@ -66,9 +93,9 @@ export function shotWorkspaceGraph(project: StoryProject, shotId: string) {
       (e) =>
         ids.has(e.source) &&
         ids.has(e.target) &&
-        (isContextEdge(e, project.nodes) ||
-          (nodeShotId(project.nodes.find((n) => n.id === e.source)!) === shotId &&
-            nodeShotId(project.nodes.find((n) => n.id === e.target)!) === shotId &&
+        (contextEdges.has(e.id) ||
+          (nodeShotId(byId.get(e.source)!) === shotId &&
+            nodeShotId(byId.get(e.target)!) === shotId &&
             !e.id.startsWith("shot_input:"))),
     ),
   };
@@ -122,6 +149,9 @@ export function mergeShotNodes(
   nodes = nodes.filter(
     (n) => visibleIds.has(n.id) || !project.nodes.some((old) => old.id === n.id),
   );
+  const root = workspaceVideo(project, shotId);
+  if (root && !nodes.some((node) => node.id === root.id))
+    nodes = [...nodes, visible.nodes.find((node) => node.id === root.id)!];
   const changed = new Map(nodes.map((n) => [n.id, n]));
   const removed = new Set(visible.nodes.filter((n) => !changed.has(n.id)).map((n) => n.id));
   const detached = new Set(

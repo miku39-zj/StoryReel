@@ -1,5 +1,6 @@
 import {
   shotWorkspaceGraph,
+  workspaceVideo,
   mergeShotNodes,
   mergeShotEdges,
   chooseMainVideo,
@@ -56,7 +57,7 @@ interface CanvasStore {
   // ── 画布数据 ────────────────────────────────────
   activeShotId: string | null;
   shotWorkspaces: Record<string, ShotWorkspace>;
-  setActiveShot: (shotId: string) => void;
+  setActiveShot: (shotId: string | null) => void;
   setMainVideo: (nodeId: string) => void;
   updateShotNodes: (nodes: StoryFlowNode[]) => void;
   updateShotEdges: (edges: StoryFlowEdge[]) => void;
@@ -206,7 +207,18 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   activeShotId: null,
   shotWorkspaces: {},
   setActiveShot: (shotId) => {
-    if (!creationSnapshot().storyboardShots.some((s) => s.shotId === shotId)) return;
+    const project = get().toProject();
+    const video = shotId && project ? workspaceVideo(project, shotId) : undefined;
+    if (shotId && !video && !creationSnapshot().storyboardShots.some((s) => s.shotId === shotId))
+      return;
+    if (shotId && video && !get().shotWorkspaces[shotId]) {
+      set({
+        shotWorkspaces: {
+          ...get().shotWorkspaces,
+          [shotId]: { initialized: true, mainVideoNodeId: video.id },
+        },
+      });
+    }
     set({ activeShotId: shotId, selectedNodeId: null, selectedEdgeId: null });
     get().persist();
   },
@@ -277,9 +289,12 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     project = baselineMedia(repairLegacyDemo(project));
     restoreCreation(project.creation);
     set({
-      activeShotId: project.creation?.storyboardShots.some((s) => s.shotId === project.activeShotId)
-        ? project.activeShotId!
-        : (project.creation?.storyboardShots[0]?.shotId ?? null),
+      activeShotId:
+        project.activeShotId &&
+        (workspaceVideo(project, project.activeShotId) ||
+          project.creation?.storyboardShots.some((s) => s.shotId === project.activeShotId))
+          ? project.activeShotId!
+          : (project.creation?.storyboardShots[0]?.shotId ?? null),
       shotWorkspaces: project.shotWorkspaces ?? {},
       projectId: project.id,
       projectName: project.name,

@@ -1,3 +1,4 @@
+import { sceneContinuity } from "./continuity";
 import { resolveShotOutputs } from "@/lib/production/shot-outputs";
 import { omit } from "@/lib/omit";
 import type { StoryProject, StoryFlowEdge } from "./types";
@@ -44,9 +45,16 @@ export function reachableNodeIds(project: StoryProject): Set<string> {
 }
 
 export function validateProject(project: StoryProject): ValidationResult {
+  const continuityWarnings = (project.creation?.storyOutline?.scenes ?? [])
+    .filter(
+      (scene) =>
+        scene.entryState ||
+        (project.creation?.storyOutline?.scenes ?? []).some((item) => item.exitState),
+    )
+    .flatMap((scene) => sceneContinuity(project, scene.id).warnings);
   project = resolveShotOutputs(project);
   const errors: string[] = [],
-    warnings: string[] = [];
+    warnings: string[] = continuityWarnings;
   const nodes = new Map(project.nodes.map((n) => [n.id, n]));
   if (nodes.size !== project.nodes.length) errors.push("存在重复的节点 ID");
   if (new Set(project.edges.map((e) => e.id)).size !== project.edges.length)

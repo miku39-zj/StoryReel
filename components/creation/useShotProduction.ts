@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useCanvasStore } from "@/stores/canvas-store";
 import { saveProject, rememberProjectRevision } from "@/lib/story/project-cache";
 import { emptyProduction, type ProductionState, type AssetKind } from "@/lib/production/types";
-import { syncShotCanvas } from "@/lib/production/canvas-shots";
+import { syncSelectedKeyframes, syncShotCanvas } from "@/lib/production/canvas-shots";
 import { applyProduction } from "@/lib/production/apply";
 
 type VisualProductionState = ProductionState & {
@@ -40,9 +40,9 @@ export function useShotProduction() {
       useCanvasStore.setState({ nodes: updated.nodes, revision: updated.revision });
     }
     const base = updated ?? local;
-    const filled = base ? fillShotCanvasResults(base, data) : null;
+    const filled = base ? syncSelectedKeyframes(fillShotCanvasResults(base, data), data) : null;
     if (filled && filled !== base) {
-      useCanvasStore.setState({ nodes: filled.nodes });
+      useCanvasStore.setState({ nodes: filled.nodes, edges: filled.edges });
       useCanvasStore.getState().persist();
     }
     setState((prev) =>

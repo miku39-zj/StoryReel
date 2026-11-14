@@ -185,7 +185,14 @@ export default function EditorPage() {
       <main
         className={`min-h-0 min-w-0 flex-1 ${workspace === "canvas" ? "absolute inset-0" : ""}`}
       >
-        {workspace === "creation" && <AICreationPipeline />}
+        {workspace === "creation" && (
+          <AICreationPipeline
+            onOpenShot={(shotId) => {
+              useCanvasStore.getState().setActiveShot(shotId);
+              setWorkspace("canvas");
+            }}
+          />
+        )}
         {workspace === "canvas" && (
           <ReactFlowProvider>
             <CanvasWorkspace />

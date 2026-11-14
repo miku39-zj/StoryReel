@@ -62,10 +62,11 @@ export function taskInstructions(): (ctx: PromptContext) => string {
 2. 生成完整的故事大纲（标题、描述、角色、场景列表）
 3. 确保故事有明确的起承转合
 4. 每个场景包含 title、description、scenePrompt（英文画面描述）
-5. 输出 JSON：{title,description,genre,visualStyle,characters:[{name,role,description}],scenes:[{id,title,description,scenePrompt,order,choices:[{label,leadsTo}]}]}
+5. 输出 JSON：{title,description,genre,visualStyle,characters:[{name,role,description}],scenes:[{id,title,description,scenePrompt,order,episode,entryState:{costume,props,time,knowledge},exitState:{costume,props,time,knowledge},choices:[{label,leadsTo}]}]}
 6. 场景 ID 唯一，所有 leadsTo 引用已有 ID；第一个场景为起点，所有场景可到达且能走向结局，结局 choices=[]
 7. 角色 description 中明确固定外貌、服装、性格和说话特征；visualStyle 用英文记录用户指定或适配题材的全片风格、色调、时代设定；scenePrompt 用英文并重复出镜角色的固定外貌和整体视觉风格
-8. ${ctx.toolNames?.includes("generate_outline") ? "若调用 generate_outline，把用户要求及完整角色、风格上下文写入 prompt；" : ""}${ctx.toolNames?.includes("validate_story") ? "生成后调用 validate_story，通过后" : "生成后"}输出完整大纲，禁止丢失字段`;
+8. 入场和出场状态只记录会影响后续场景的事实。集号和播放顺序以创作配置为准。
+9. ${ctx.toolNames?.includes("generate_outline") ? "若调用 generate_outline，把用户要求及完整角色、风格上下文写入 prompt；" : ""}${ctx.toolNames?.includes("validate_story") ? "生成后调用 validate_story，通过后" : "生成后"}输出完整大纲，禁止丢失字段`;
 
       case "branch":
         return `## 任务：分支剧情设计
@@ -78,7 +79,8 @@ export function taskInstructions(): (ctx: PromptContext) => string {
 5. 输出 JSON：{decisionPoints:[{sceneId,question,choices:[{label,targetSceneId,consequence}]}],endings:[{sceneId,title,description}]}
 6. 所有 ID 必须来自已有场景，决策点和结局不能重复或重叠；每个决策点至少两个不同目标，不能指向自身
 7. 尊重角色动机、已有事件和因果关系，不要新增场景 ID；所有场景必须从按 order 排序的首场景可达，且能走向结局
-8. 没有配置决策点和结局的场景：若原 choices 只有一项，必须沿用该项的 leadsTo 作为自动后继；否则默认接按 order 排序的下一场景。不要把互斥路线按列表顺序串起来`;
+8. 没有配置决策点和结局的场景：若原 choices 只有一项，必须沿用该项的 leadsTo 作为自动后继；否则默认接按 order 排序的下一场景。不要把互斥路线按列表顺序串起来
+9. consequence 写出每个选项立即发生的事件，以及带入目标场景的道具、角色已知信息或时间变化。目标场景必须能从该状态开场。若路线在同一场景汇合，沿用剧本中已有的过渡。`;
 
       case "storyboard":
         return `## 任务：分镜脚本生成
@@ -91,7 +93,9 @@ export function taskInstructions(): (ctx: PromptContext) => string {
 5. 必须遵循分支选项及 consequence、结局约束，不能将互斥路线的事件当作共同前史
 6. imagePrompt 用简洁英文（每镜约 40–80 词），包含本镜出镜角色的关键外貌服装、场景、光线、构图与动作；不重复完整角色档案或未出镜角色。全片风格和完整角色档案由服务端统一继承，避免输出冗余字段。
 7. 每个镜头必须给出 characterNames：只列本镜实际出镜的已有角色 name（空镜为 []），不包含仅被提及、回忆或画外音的角色。sceneId 确定本镜所属场景，人物与场景将直接绑定对应参考图片，不能遗漏或把全体角色都填入。
-8. 有对白时 speaker 必须是已知角色的 name 或“旁白”；无对白省略 dialogue/speaker，不可编造未知说话者；台词长度须适配镜头时长`;
+8. 有对白时 speaker 必须是已知角色的 name 或“旁白”；无对白省略 dialogue/speaker，不可编造未知说话者；台词长度须适配镜头时长
+9. imagePrompt 只描述动作开始前的一张可拍摄画面。action 按发生顺序写主体动作与最后可见状态，cameraMove 写对应的相机运动。
+10. 跨集接拍时，前镜落点和后镜开场应匹配人物姿态、道具位置和运动方向。切景或跳时时，在新开场明确地点与时间，沿用已确立的角色状态。`;
 
       case "visual":
         return `## 任务：视觉素材生成

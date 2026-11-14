@@ -2,9 +2,10 @@
 
 import { mainVideoNode } from "@/lib/canvas/shot-workspace";
 import { NodeContextMenu } from "../NodeContextMenu";
-import type { ReactNode } from "react";
-import { Handle, Position } from "@xyflow/react";
+import { useEffect, type ReactNode } from "react";
+import { Handle, Position, useUpdateNodeInternals } from "@xyflow/react";
 import { Card, Badge } from "@/components/ui";
+import { useCreationStore } from "@/stores/creation-store";
 import { useCanvasStore } from "@/stores/canvas-store";
 import type { StoryNodeType } from "@/lib/story/types";
 import { isStale } from "@/lib/canvas/workflow";
@@ -34,6 +35,7 @@ export function NodeCard({
 }) {
   const shotId = useCanvasStore((s) => s.activeShotId);
   useCanvasStore((s) => s.shotWorkspaces);
+  const hasStory = useCreationStore((s) => !!s.storyOutline);
   const active = useCanvasStore((s) => s.selectedNodeId === nodeId);
   // Recompute staleness when connections change; toProject() reads the current edges.
   useCanvasStore((s) => s.edges);
@@ -41,8 +43,17 @@ export function NodeCard({
     jobs = useCanvasJobs((s) => s.jobs);
   const project = useCanvasStore.getState().toProject(),
     node = nodes.find((n) => n.id === nodeId);
+  const updateNodeInternals = useUpdateNodeInternals();
+  useEffect(() => {
+    updateNodeInternals(nodeId);
+  }, [updateNodeInternals, nodeId, shotId, hasStory]);
   const isMain = !!(project && shotId && mainVideoNode(project, shotId)?.id === nodeId);
-  const stale = project && node && ["image", "video"].includes(type) && isStale(project, node);
+  const stale =
+    (!hasStory || shotId) &&
+    project &&
+    node &&
+    ["image", "video"].includes(type) &&
+    isStale(project, node);
   const running = jobs.some((j) => j.nodeId === nodeId && ["queued", "running"].includes(j.status));
   selected = active || selected;
   return (
@@ -102,13 +113,12 @@ export function NodeCard({
             )}
           </div>
         </Card>
-        {(type === "video" || type === "image") && (
+        {(shotId || !hasStory) && (type === "video" || type === "image") && (
           <Handle
             id="context"
             type="target"
             position={Position.Left}
             title="素材输入：连接文本、图片或参考视频"
-            style={undefined}
             className="!h-3 !w-3 !border-2 !border-oii-surface !bg-brand-accent"
           />
         )}
@@ -118,7 +128,7 @@ export function NodeCard({
             type="target"
             position={Position.Left}
             title="剧情入口"
-            style={{ top: type === "video" ? "80%" : "50%" }}
+            style={!hasStory && type === "video" ? { top: "80%" } : undefined}
             className="!h-2.5 !w-2.5 !border-2 !border-oii-surface !bg-white/40"
           />
         )}

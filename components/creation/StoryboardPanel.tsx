@@ -37,8 +37,8 @@ function buildKeyframeChain(shots: StoryboardShot[]) {
   const sorted = [...shots].sort((a, b) => a.shotIndex - b.shotIndex);
   for (const shot of sorted) {
     const fid = shot.firstFrameId ?? `auto:${shot.shotId}:first`;
-    const lid = shot.lastFrameId ?? `auto:${shot.shotId}:last`;
-    for (const id of [fid, lid]) {
+    for (const id of [fid, shot.lastFrameId]) {
+      if (!id) continue;
       if (!seen.has(id)) {
         seen.set(id, frames.length);
         frames.push({ id, label: "", sharedBy: [shot.shotId] });
@@ -122,29 +122,12 @@ export function StoryboardPanel() {
       const shots = normalizeShots(result, storyboardShots);
       if (shots.some((shot) => !storyOutline.scenes.some((scene) => scene.id === shot.sceneId)))
         throw new Error("分镜引用了不存在的场景");
-      // Auto-assign shared keyframe IDs for consecutive shots in the same scene
-      const withFrames = shots.map((shot, i) => {
-        const prev = i > 0 ? shots[i - 1] : null;
-        const sameScene = prev && prev.sceneId === shot.sceneId;
-        return {
+      setStoryboard(
+        shots.map((shot) => ({
           ...shot,
-          firstFrameId:
-            shot.firstFrameId ??
-            (sameScene && prev!.lastFrameId
-              ? prev!.lastFrameId
-              : `kf_${shot.shotId}_first`),
-          lastFrameId: shot.lastFrameId ?? `kf_${shot.shotId}_last`,
-        };
-      });
-      // For consecutive same-scene shots, make last frame of shot N = first frame of shot N+1
-      const linked = withFrames.map((shot, i) => {
-        const next = i < withFrames.length - 1 ? withFrames[i + 1] : null;
-        if (next && next.sceneId === shot.sceneId) {
-          return { ...shot, lastFrameId: next.firstFrameId! };
-        }
-        return shot;
-      });
-      setStoryboard(linked);
+          firstFrameId: shot.firstFrameId ?? `kf_${shot.shotId}_first`,
+        })),
+      );
       setStepStatus("storyboard", "done");
     } catch (e) {
       console.error(e);
@@ -222,9 +205,7 @@ export function StoryboardPanel() {
                   >
                     {frame.label}
                   </div>
-                  {i < keyframeChain.length - 1 && (
-                    <div className="h-px w-3 bg-white/[0.12]" />
-                  )}
+                  {i < keyframeChain.length - 1 && <div className="h-px w-3 bg-white/[0.12]" />}
                 </Fragment>
               ))}
             </div>
@@ -256,162 +237,181 @@ export function StoryboardPanel() {
                 {storyboardShots.map((shot, i) => {
                   const nextShot = i < storyboardShots.length - 1 ? storyboardShots[i + 1] : null;
                   const isSharedWithNext =
-                    nextShot &&
-                    shot.lastFrameId &&
-                    shot.lastFrameId === nextShot.firstFrameId;
+                    nextShot && shot.lastFrameId && shot.lastFrameId === nextShot.firstFrameId;
                   const firstLabel =
                     keyframeChain.find((f) => f.id === (shot.firstFrameId ?? ""))?.label ?? "?";
                   const lastLabel =
                     keyframeChain.find((f) => f.id === (shot.lastFrameId ?? ""))?.label ?? "?";
 
                   return (
-                  <Fragment key={shot.shotId ?? `${shot.sceneId}-${shot.shotIndex}-${i}`}>
-                    <TableRow>
-                      <TableCell>
-                        <p className="text-white/85">
-                          {storyOutline.scenes.find((sc) => sc.id === shot.sceneId)?.title ??
-                            shot.sceneId}
-                        </p>
-                        <p className="mt-1 text-xs text-white/40">
-                          镜头 {String(shot.shotIndex + 1).padStart(2, "0")}
-                        </p>
-                      </TableCell>
-                      <TableCell>
-                        <Badge>{shot.frameType}</Badge>
-                      </TableCell>
-                      <TableCell>{shot.cameraMove}</TableCell>
-                      <TableCell className="whitespace-nowrap tabular-nums">
-                        <Input
-                          type="number"
-                          min="0.1"
-                          max="10"
-                          step="0.1"
-                          aria-label={`${shot.shotId} 时长`}
-                          value={shot.duration}
-                          onChange={(e) => {
-                            const duration = Number(e.target.value);
-                            if (duration > 0 && duration <= 10)
-                              setStoryboard(
-                                storyboardShots.map((s) =>
-                                  s.shotId === shot.shotId ? { ...s, duration } : s,
-                                ),
-                              );
-                          }}
-                          className="h-7 w-14 px-2 text-xs"
-                        />{" "}
-                        秒
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1 text-[11px]">
-                          <span
-                            className={`flex h-5 w-5 items-center justify-center rounded border text-[10px] font-bold ${
-                              keyframeChain.find((f) => f.id === shot.firstFrameId)?.sharedBy.length ?? 0 > 1
-                                ? "border-brand-accent/40 bg-brand-accent/10 text-brand-accent"
-                                : "border-white/[0.12] bg-white/[0.04] text-white/55"
-                            }`}
-                          >
-                            {firstLabel}
-                          </span>
-                          <span className="text-white/30">→</span>
-                          <span
-                            className={`flex h-5 w-5 items-center justify-center rounded border text-[10px] font-bold ${
-                              keyframeChain.find((f) => f.id === shot.lastFrameId)?.sharedBy.length ?? 0 > 1
-                                ? "border-brand-accent/40 bg-brand-accent/10 text-brand-accent"
-                                : "border-white/[0.12] bg-white/[0.04] text-white/55"
-                            }`}
-                          >
-                            {lastLabel}
-                          </span>
-                          {nextShot && nextShot.sceneId === shot.sceneId && (
-                            <button
-                              type="button"
-                              title={isSharedWithNext ? "断开与下一镜的共享帧" : "与下一镜共享尾帧"}
-                              onClick={() => toggleSharedFrame(shot, nextShot)}
-                              className="ml-1 rounded p-0.5 text-white/40 hover:text-brand-accent"
+                    <Fragment key={shot.shotId ?? `${shot.sceneId}-${shot.shotIndex}-${i}`}>
+                      <TableRow>
+                        <TableCell>
+                          <p className="text-white/85">
+                            {storyOutline.scenes.find((sc) => sc.id === shot.sceneId)?.title ??
+                              shot.sceneId}
+                          </p>
+                          <p className="mt-1 text-xs text-white/40">
+                            镜头 {String(shot.shotIndex + 1).padStart(2, "0")}
+                          </p>
+                        </TableCell>
+                        <TableCell>
+                          <Badge>{shot.frameType}</Badge>
+                        </TableCell>
+                        <TableCell>{shot.cameraMove}</TableCell>
+                        <TableCell className="whitespace-nowrap tabular-nums">
+                          <Input
+                            type="number"
+                            min="0.1"
+                            max="10"
+                            step="0.1"
+                            aria-label={`${shot.shotId} 时长`}
+                            value={shot.duration}
+                            onChange={(e) => {
+                              const duration = Number(e.target.value);
+                              if (duration > 0 && duration <= 10)
+                                setStoryboard(
+                                  storyboardShots.map((s) =>
+                                    s.shotId === shot.shotId ? { ...s, duration } : s,
+                                  ),
+                                );
+                            }}
+                            className="h-7 w-14 px-2 text-xs"
+                          />{" "}
+                          秒
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1 text-[11px]">
+                            <span
+                              className={`flex h-5 w-5 items-center justify-center rounded border text-[10px] font-bold ${
+                                (keyframeChain.find((f) => f.id === shot.firstFrameId)?.sharedBy
+                                  .length ?? 0 > 1)
+                                  ? "border-brand-accent/40 bg-brand-accent/10 text-brand-accent"
+                                  : "border-white/[0.12] bg-white/[0.04] text-white/55"
+                              }`}
                             >
-                              {isSharedWithNext ? <Link2 size={12} /> : <Unlink size={12} />}
-                            </button>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <p>{shot.action}</p>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          aria-expanded={editingShotId === shot.shotId}
-                          aria-controls={`shot-editor-${shot.shotId}`}
-                          aria-label={`编辑镜头 ${shot.shotIndex + 1} · ${storyOutline.scenes.find((sc) => sc.id === shot.sceneId)?.title ?? shot.sceneId}`}
-                          onClick={() =>
-                            setEditingShotId(editingShotId === shot.shotId ? null : shot.shotId)
-                          }
-                        >
-                          编辑
-                          <ChevronDown
-                            size={12}
-                            className={editingShotId === shot.shotId ? "rotate-180" : ""}
-                          />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                    {editingShotId === shot.shotId && (
-                      <TableRow className="bg-black/15 hover:bg-black/15">
-                        <TableCell colSpan={7}>
-                          <div
-                            id={`shot-editor-${shot.shotId}`}
-                            className="grid gap-3 sm:grid-cols-[2fr_1fr]"
-                          >
-                            <label className="space-y-1.5 block text-xs text-white/60">
-                              画面提示词
-                              <Textarea
-                                aria-label={`${shot.shotId} 画面提示词`}
-                                value={shot.imagePrompt}
-                                onChange={(e) => {
-                                  if (e.target.value.trim())
-                                    setStoryboard(
-                                      storyboardShots.map((s) =>
-                                        s.shotId === shot.shotId
-                                          ? { ...s, imagePrompt: e.target.value }
-                                          : s,
-                                      ),
-                                    );
-                                }}
-                                rows={4}
-                              />
-                            </label>
-                            <label className="space-y-1.5 block text-xs text-white/60">
-                              对白
-                              <Textarea
-                                aria-label={`${shot.shotId} 对白`}
-                                value={shot.dialogue ?? ""}
-                                onChange={(e) =>
+                              {firstLabel}
+                            </span>
+                            <span className="text-white/30">→</span>
+                            <span
+                              className={`flex h-5 w-5 items-center justify-center rounded border text-[10px] font-bold ${
+                                (keyframeChain.find((f) => f.id === shot.lastFrameId)?.sharedBy
+                                  .length ?? 0 > 1)
+                                  ? "border-brand-accent/40 bg-brand-accent/10 text-brand-accent"
+                                  : "border-white/[0.12] bg-white/[0.04] text-white/55"
+                              }`}
+                            >
+                              {lastLabel}
+                            </span>
+                            {!shot.lastFrameId && (
+                              <button
+                                type="button"
+                                className="text-xs text-brand-accent"
+                                onClick={() =>
                                   setStoryboard(
-                                    storyboardShots.map((s) =>
-                                      s.shotId === shot.shotId
-                                        ? { ...s, dialogue: e.target.value }
-                                        : s,
+                                    storyboardShots.map((item) =>
+                                      item.shotId === shot.shotId
+                                        ? { ...item, lastFrameId: `kf_${item.shotId}_last` }
+                                        : item,
                                     ),
                                   )
                                 }
-                                rows={4}
-                              />
-                            </label>
+                              >
+                                添加尾帧
+                              </button>
+                            )}
+                            {nextShot && nextShot.sceneId === shot.sceneId && (
+                              <button
+                                type="button"
+                                title={
+                                  isSharedWithNext ? "断开与下一镜的共享帧" : "与下一镜共享尾帧"
+                                }
+                                onClick={() => toggleSharedFrame(shot, nextShot)}
+                                className="ml-1 rounded p-0.5 text-white/40 hover:text-brand-accent"
+                              >
+                                {isSharedWithNext ? <Link2 size={12} /> : <Unlink size={12} />}
+                              </button>
+                            )}
                           </div>
-                          <p className="mt-2 text-xs text-white/40">光线：{shot.lighting}</p>
+                        </TableCell>
+                        <TableCell>
+                          <p>{shot.action}</p>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-expanded={editingShotId === shot.shotId}
+                            aria-controls={`shot-editor-${shot.shotId}`}
+                            aria-label={`编辑镜头 ${shot.shotIndex + 1} · ${storyOutline.scenes.find((sc) => sc.id === shot.sceneId)?.title ?? shot.sceneId}`}
+                            onClick={() =>
+                              setEditingShotId(editingShotId === shot.shotId ? null : shot.shotId)
+                            }
+                          >
+                            编辑
+                            <ChevronDown
+                              size={12}
+                              className={editingShotId === shot.shotId ? "rotate-180" : ""}
+                            />
+                          </Button>
                         </TableCell>
                       </TableRow>
-                    )}
-                  </Fragment>
+                      {editingShotId === shot.shotId && (
+                        <TableRow className="bg-black/15 hover:bg-black/15">
+                          <TableCell colSpan={7}>
+                            <div
+                              id={`shot-editor-${shot.shotId}`}
+                              className="grid gap-3 sm:grid-cols-[2fr_1fr]"
+                            >
+                              <label className="space-y-1.5 block text-xs text-white/60">
+                                画面提示词
+                                <Textarea
+                                  aria-label={`${shot.shotId} 画面提示词`}
+                                  value={shot.imagePrompt}
+                                  onChange={(e) => {
+                                    if (e.target.value.trim())
+                                      setStoryboard(
+                                        storyboardShots.map((s) =>
+                                          s.shotId === shot.shotId
+                                            ? { ...s, imagePrompt: e.target.value }
+                                            : s,
+                                        ),
+                                      );
+                                  }}
+                                  rows={4}
+                                />
+                              </label>
+                              <label className="space-y-1.5 block text-xs text-white/60">
+                                对白
+                                <Textarea
+                                  aria-label={`${shot.shotId} 对白`}
+                                  value={shot.dialogue ?? ""}
+                                  onChange={(e) =>
+                                    setStoryboard(
+                                      storyboardShots.map((s) =>
+                                        s.shotId === shot.shotId
+                                          ? { ...s, dialogue: e.target.value }
+                                          : s,
+                                      ),
+                                    )
+                                  }
+                                  rows={4}
+                                />
+                              </label>
+                            </div>
+                            <p className="mt-2 text-xs text-white/40">光线：{shot.lighting}</p>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
                   );
                 })}
               </TableBody>
             </Table>
           </Card>
           <div className="flex justify-end border-t border-white/[0.08] pt-5">
-            <Button variant="primary" size="lg" onClick={() => setActiveStep("visual")}>
-              下一步：角色与画面 →
+            <Button variant="primary" size="lg" onClick={() => setActiveStep("video")}>
+              前往逐镜生成
             </Button>
           </div>
         </>
@@ -419,4 +419,3 @@ export function StoryboardPanel() {
     </CreationStepLayout>
   );
 }
-
